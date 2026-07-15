@@ -1,0 +1,122 @@
+name: "🎬 Vid IA Pipeline"
+
+on:
+  schedule:
+    # Toutes les 8h — heure UTC (Paris = UTC+2)
+    # 02:00 UTC = 04:00 Paris → Thème IA
+    # 10:00 UTC = 12:00 Paris → Thème Monde
+    # 18:00 UTC = 20:00 Paris → Thème Horreur
+    - cron: '0 2,10,18 * * *'
+  workflow_dispatch:    # Déclenchement manuel depuis GitHub
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90   # ✅ 90 min max (images + FFmpeg peuvent prendre du temps)
+
+    steps:
+      # ──────────────────────────────────────────────────────────
+      # PRÉPARATION
+      # ──────────────────────────────────────────────────────────
+      - name: "📥 Récupérer le code du dépôt"
+        uses: actions/checkout@v4
+
+      - name: "🟢 Configuration Node.js 20"
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: "🔧 Installer FFmpeg système"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -1
+        # ✅ FFmpeg natif Ubuntu = rapide et stable
+
+      - name: "📦 Installer les dépendances NPM"
+        run: npm install
+        timeout-minutes: 5
+
+      - name: "📁 Créer les dossiers temporaires"
+        run: mkdir -p tmp_data/images tmp_data/audio tmp_data/clips
+
+      # ──────────────────────────────────────────────────────────
+      # ÉTAPE 1 — Génération du Script IA
+      # ──────────────────────────────────────────────────────────
+      - name: "🤖 ÉTAPE 1 — Génération du script IA (16 segments)"
+        run: node scripts/step1_generate_script.js
+        timeout-minutes: 5
+        env:
+          DELFA_API_URL: ${{ secrets.DELFA_API_URL }}
+
+      # ──────────────────────────────────────────────────────────
+      # ÉTAPE 2 — Génération des 16 Images
+      # ──────────────────────────────────────────────────────────
+      - name: "🖼️ ÉTAPE 2 — Génération des 16 images (packs de 5)"
+        run: node scripts/step2_generate_images.js
+        timeout-minutes: 30    # ✅ 30 min — les images peuvent être lentes
+        env:
+          IMAGE_API_URL: ${{ secrets.IMAGE_API_URL }}
+
+      # ──────────────────────────────────────────────────────────
+      # ÉTAPE 2b — Vérification des Images
+      # ──────────────────────────────────────────────────────────
+      - name: "🔍 ÉTAPE 2b — Vérification et correction des images manquantes"
+        run: node scripts/step2b_verify_images.js
+        timeout-minutes: 15
+        env:
+          IMAGE_API_URL: ${{ secrets.IMAGE_API_URL }}
+
+      # ──────────────────────────────────────────────────────────
+      # ÉTAPE 3 — Génération des Audios TTS
+      # ──────────────────────────────────────────────────────────
+      - name: "🎙️ ÉTAPE 3 — Génération des 16 audios TTS"
+        run: node scripts/step3_generate_audio.js
+        timeout-minutes: 10
+
+      # ──────────────────────────────────────────────────────────
+      # ÉTAPE 3b — Vérification des Audios
+      # ──────────────────────────────────────────────────────────
+      - name: "🔍 ÉTAPE 3b — Vérification et correction des audios manquants"
+        run: node scripts/step3b_verify_audio.js
+        timeout-minutes: 10
+
+      # ──────────────────────────────────────────────────────────
+      # ÉTAPE 4 — Assemblage Vidéo FFmpeg
+      # ──────────────────────────────────────────────────────────
+      - name: "🎬 ÉTAPE 4 — Assemblage de la vidéo finale (FFmpeg)"
+        run: node scripts/step4_assemble_video.js
+        timeout-minutes: 25    # ✅ 25 min — FFmpeg peut prendre du temps
+
+      # ──────────────────────────────────────────────────────────
+      # ÉTAPE 5 — Génération du Titre et Métadonnées
+      # ──────────────────────────────────────────────────────────
+      - name: "✍️ ÉTAPE 5 — Génération du titre et des hashtags"
+        run: node scripts/step5_generate_filename.js
+        timeout-minutes: 5
+        env:
+          DELFA_API_URL: ${{ secrets.DELFA_API_URL }}
+
+      # ──────────────────────────────────────────────────────────
+      # ÉTAPE 6 — Upload Google Drive
+      # ──────────────────────────────────────────────────────────
+      - name: "☁️ ÉTAPE 6 — Upload sur Google Drive"
+        run: node scripts/upload_drive.js
+        timeout-minutes: 10
+        env:
+          GOOGLE_CLIENT_ID:     ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          DRIVE_FOLDER_ID:      ${{ secrets.DRIVE_FOLDER_ID }}
+
+      # ──────────────────────────────────────────────────────────
+      # ÉTAPE 7 — Publication YouTube
+      # ──────────────────────────────────────────────────────────
+      - name: "▶️ ÉTAPE 7 — Publication sur YouTube"
+        run: node scripts/upload_youtube.js
+        timeout-minutes: 15    # ✅ 15 min — l'upload YouTube peut être long
+        env:
+          GOOGLE_CLIENT_ID:     ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}

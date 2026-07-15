@@ -1,0 +1,22 @@
+# ── Dépendances ─────────────────────────────────────────────
+node_modules/
+
+# ── Fichiers temporaires du pipeline ────────────────────────
+tmp_data/
+
+# ── Secrets & Environnement (NE JAMAIS COMMITTER) ───────────
+# .env.example est autorisé (pas de vraies valeurs dedans)
+.env
+.env.local
+.env.production
+
+# ── Systèmes d'exploitation ──────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Éditeurs ─────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
