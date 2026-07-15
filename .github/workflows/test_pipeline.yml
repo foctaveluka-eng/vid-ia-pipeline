@@ -16,7 +16,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Installer FFmpeg système
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
