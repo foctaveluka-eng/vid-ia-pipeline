@@ -260,14 +260,13 @@ async function testGoogleDrive(videoOk) {
     auth.setCredentials({ refresh_token: GOOGLE_REFRESH_TOKEN });
 
     const drive = google.drive({ version: "v3", auth });
-    const { data } = await drive.files.list({
-      q: `'${DRIVE_FOLDER_ID}' in parents and trashed=false`,
-      pageSize: 1,
-      fields: "files(id, name)",
+    const { data } = await drive.files.get({
+      fileId: DRIVE_FOLDER_ID,
+      fields: "id, name",
     });
 
-    RESULTS.etape5_drive = { ok: true, details: `Connexion OK — dossier accessible` };
-    console.log(`   ✅ Google Drive OK — dossier accessible`);
+    RESULTS.etape5_drive = { ok: true, details: `Connexion OK — Dossier "${data.name}" accessible` };
+    console.log(`   ✅ Google Drive OK — Dossier : "${data.name}"`);
     return true;
 
   } catch (err) {
