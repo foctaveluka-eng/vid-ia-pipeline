@@ -1,19 +1,6 @@
 /**
  * SCRIPT DE TEST — Pipeline réduit (3 segments seulement)
- * 
- * Lancez ce script AVANT de pousser sur GitHub pour vérifier que :
- *   ✅ L'API Delfa génère bien un script
- *   ✅ L'API d'images répond correctement
- *   ✅ Google TTS génère des fichiers audio
- *   ✅ FFmpeg assemble correctement la vidéo
- *   ✅ Google Drive accepte l'upload
- *   ✅ YouTube accepte la publication
- * 
- * Usage (local) :
- *   node scripts/test_pipeline.js
- * 
- * Usage (GitHub Actions) :
- *   Workflow "test_pipeline.yml" → Run workflow
+ * SANS ÉTAPE GOOGLE DRIVE
  */
 
 "use strict";
@@ -23,8 +10,7 @@ const fs      = require("fs");
 const path    = require("path");
 const { execSync } = require("child_process");
 
-// ─── Configuration ─────────────────────────────────────────────────────────────
-const NB_SEGMENTS_TEST = 3; // Seulement 3 segments pour le test (rapide)
+const NB_SEGMENTS_TEST = 3;
 const DELFA_API_URL    = process.env.DELFA_API_URL || "https://delfaapiai.vercel.app/ai/copilot";
 const IMAGE_API_URL    = process.env.IMAGE_API_URL || "https://gem-tw6a.onrender.com/generate";
 
@@ -33,11 +19,9 @@ const RESULTS = {
   etape2_images:  { ok: false, details: "" },
   etape3_audio:   { ok: false, details: "" },
   etape4_video:   { ok: false, details: "" },
-  etape5_drive:   { ok: false, details: "" },
-  etape6_youtube: { ok: false, details: "" },
+  etape5_youtube: { ok: false, details: "" },
 };
 
-// ─── Utilitaires ──────────────────────────────────────────────────────────────
 const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function detectFFmpeg() {
@@ -73,7 +57,7 @@ function printResults() {
 
   if (nbOk === entries.length) {
     console.log("🎉 SUCCÈS TOTAL — Le pipeline est prêt pour la production !");
-  } else if (nbOk >= 4) {
+  } else if (nbOk >= 3) {
     console.log("⚠️  SUCCÈS PARTIEL — Vérifiez les étapes en rouge.");
   } else {
     console.log("💥 ÉCHEC — Corrigez les erreurs avant de déployer.");
@@ -81,7 +65,6 @@ function printResults() {
   console.log("=".repeat(60));
 }
 
-// ─── TEST 1 : Génération du script ────────────────────────────────────────────
 async function testGenerateScript() {
   console.log("\n🧪 [TEST 1] Génération du script IA...");
   const prompt = `Génère exactement ${NB_SEGMENTS_TEST} segments de test pour une vidéo courte sur l'IA.
@@ -101,7 +84,6 @@ Renvoie UNIQUEMENT un JSON valide :
       throw new Error("Pas de segments dans la réponse");
     }
 
-    // Sauvegarde pour les tests suivants
     fs.mkdirSync("./tmp_data_test/images", { recursive: true });
     fs.mkdirSync("./tmp_data_test/audio",  { recursive: true });
     fs.mkdirSync("./tmp_data_test/clips",  { recursive: true });
@@ -126,11 +108,10 @@ Renvoie UNIQUEMENT un JSON valide :
   }
 }
 
-// ─── TEST 2 : Génération d'une image ─────────────────────────────────────────
 async function testGenerateImage(segments) {
   console.log("\n🧪 [TEST 2] Génération d'une image de test...");
   if (!segments) {
-    RESULTS.etape2_images = { ok: false, details: "Skipped (étape 1 échouée)" };
+    RESULTS.etape2_images = { ok: false, details: "Skipped" };
     return false;
   }
 
@@ -158,7 +139,6 @@ async function testGenerateImage(segments) {
   }
 }
 
-// ─── TEST 3 : Génération d'un audio TTS ───────────────────────────────────────
 async function testGenerateAudio(segments) {
   console.log("\n🧪 [TEST 3] Génération d'un audio TTS...");
   if (!segments) {
@@ -190,9 +170,8 @@ async function testGenerateAudio(segments) {
   }
 }
 
-// ─── TEST 4 : Assemblage d'une mini-vidéo ─────────────────────────────────────
 async function testAssembleVideo(imageOk, audioOk) {
-  console.log("\n🧪 [TEST 4] Assemblage FFmpeg (mini-vidéo 1 clip)...");
+  console.log("\n🧪 [TEST 4] Assemblage FFmpeg...");
 
   const ffmpegBin = detectFFmpeg();
   if (!ffmpegBin) {
@@ -202,7 +181,7 @@ async function testAssembleVideo(imageOk, audioOk) {
   }
 
   if (!imageOk || !audioOk) {
-    RESULTS.etape4_video = { ok: false, details: "Skipped (image ou audio manquant)" };
+    RESULTS.etape4_video = { ok: false, details: "Skipped" };
     return false;
   }
 
@@ -237,53 +216,13 @@ async function testAssembleVideo(imageOk, audioOk) {
   }
 }
 
-// ─── TEST 5 : Upload Google Drive ─────────────────────────────────────────────
-async function testGoogleDrive(videoOk) {
-  console.log("\n🧪 [TEST 5] Test connexion Google Drive...");
-
-  const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN, DRIVE_FOLDER_ID } = process.env;
-
-  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN || !DRIVE_FOLDER_ID) {
-    RESULTS.etape5_drive = { ok: false, details: "Variables d'environnement manquantes" };
-    console.error("   ❌ Secrets Google manquants");
-    return false;
-  }
-
-  if (!videoOk) {
-    // Test de connexion uniquement (sans upload)
-    console.log("   ⚠️  Vidéo non disponible — test de connexion seul");
-  }
-
-  try {
-    const { google } = require("googleapis");
-    const auth = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
-    auth.setCredentials({ refresh_token: GOOGLE_REFRESH_TOKEN });
-
-    const drive = google.drive({ version: "v3", auth });
-    const { data } = await drive.files.get({
-      fileId: DRIVE_FOLDER_ID,
-      fields: "id, name",
-    });
-
-    RESULTS.etape5_drive = { ok: true, details: `Connexion OK — Dossier "${data.name}" accessible` };
-    console.log(`   ✅ Google Drive OK — Dossier : "${data.name}"`);
-    return true;
-
-  } catch (err) {
-    RESULTS.etape5_drive = { ok: false, details: err.message };
-    console.error(`   ❌ ${err.message}`);
-    return false;
-  }
-}
-
-// ─── TEST 6 : Connexion YouTube ───────────────────────────────────────────────
 async function testYouTube() {
-  console.log("\n🧪 [TEST 6] Test connexion YouTube...");
+  console.log("\n🧪 [TEST 5] Test connexion YouTube...");
 
   const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN } = process.env;
 
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN) {
-    RESULTS.etape6_youtube = { ok: false, details: "Variables d'environnement manquantes" };
+    RESULTS.etape5_youtube = { ok: false, details: "Variables d'environnement manquantes" };
     console.error("   ❌ Secrets Google manquants");
     return false;
   }
@@ -295,38 +234,30 @@ async function testYouTube() {
 
     const youtube = google.youtube({ version: "v3", auth });
 
-    // On vérifie les quotas et l'accès sans uploader
     const { data } = await youtube.channels.list({
       part: ["snippet"],
       mine: true,
     });
 
     const channelName = data.items?.[0]?.snippet?.title || "Canal inconnu";
-    RESULTS.etape6_youtube = { ok: true, details: `Canal YouTube accessible : "${channelName}"` };
+    RESULTS.etape5_youtube = { ok: true, details: `Canal YouTube : "${channelName}"` };
     console.log(`   ✅ YouTube OK — Canal : "${channelName}"`);
 
   } catch (err) {
-    RESULTS.etape6_youtube = { ok: false, details: err.message };
+    RESULTS.etape5_youtube = { ok: false, details: err.message };
     console.error(`   ❌ ${err.message}`);
   }
 }
 
-// ─── Nettoyage ────────────────────────────────────────────────────────────────
 function cleanup() {
   try {
     fs.rmSync("./tmp_data_test", { recursive: true, force: true });
-    console.log("\n🧹 Fichiers de test nettoyés.");
-  } catch {
-    // Silencieux
-  }
+  } catch {}
 }
 
-// ─── MAIN ─────────────────────────────────────────────────────────────────────
 async function main() {
   console.log("=".repeat(60));
-  console.log("🚀 TEST DU VID IA PIPELINE");
-  console.log(`   Segments testés : ${NB_SEGMENTS_TEST} (au lieu de 16)`);
-  console.log(`   Date            : ${new Date().toLocaleString("fr-FR")}`);
+  console.log("🚀 TEST DU VID IA PIPELINE (SANS DRIVE)");
   console.log("=".repeat(60));
 
   const segments = await testGenerateScript();
@@ -341,15 +272,11 @@ async function main() {
   const videoOk  = await testAssembleVideo(imageOk, audioOk);
   await attendre(500);
 
-  await testGoogleDrive(videoOk);
-  await attendre(500);
-
   await testYouTube();
 
   cleanup();
   printResults();
 
-  // Code de sortie : 0 si tout OK, 1 sinon
   const allOk = Object.values(RESULTS).every((r) => r.ok);
   process.exit(allOk ? 0 : 1);
 }

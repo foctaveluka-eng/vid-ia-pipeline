@@ -1,12 +1,12 @@
 name: "🧪 Test Pipeline (3 segments)"
 
 on:
-  workflow_dispatch:   # Test uniquement manuel — jamais automatique
+  workflow_dispatch:   # Test uniquement manuel
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30   # 30 min max pour le test
+    timeout-minutes: 30
 
     steps:
       - name: Récupérer le code
@@ -29,6 +29,5 @@ jobs:
           GOOGLE_CLIENT_ID:     ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
-          DRIVE_FOLDER_ID:      ${{ secrets.DRIVE_FOLDER_ID }}
           DELFA_API_URL:        ${{ secrets.DELFA_API_URL }}
           IMAGE_API_URL:        ${{ secrets.IMAGE_API_URL }}
