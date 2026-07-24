@@ -6,7 +6,7 @@
 
 const axios = require("axios");
 const fs = require("fs");
-const { THEMES, getThemeFromEnvironment, getSegmentCount, getMangaEpisode } = require("./pipeline_config");
+const { THEMES, getThemeFromEnvironment, getSegmentCount, getMangaEpisode, getCartoonEpisode } = require("./pipeline_config");
 
 const DELFA_API_URL = process.env.DELFA_API_URL || "https://delfaapiai.vercel.app/ai/copilot";
 
@@ -35,10 +35,17 @@ async function main() {
   const theme = THEMES[themeId];
   const segmentCount = getSegmentCount(themeId);
   const isManga = themeId === "manga";
+  const isCartoon = themeId === "dessin_anime";
   const mangaEpisode = isManga ? getMangaEpisode() : null;
-  const actGuidance = isManga
-    ? `- Ceci est le chapitre ${mangaEpisode.number}, publié le ${mangaEpisode.date}, de la série originale « ${mangaEpisode.title} ». Arc actuel : « ${mangaEpisode.arc.name} » — ${mangaEpisode.arc.goal}\n- Bible immuable : ${mangaEpisode.visualBible}\n- Raconte un épisode complet avec son propre mini-conflit, une avancée nette vers l'objectif de l'arc et une dernière image qui donne envie de voir le chapitre suivant. Ne résume jamais toute la saga en un seul épisode.\n- Répartis les ${segmentCount} scènes: rappel organique, enjeu du chapitre, obstacles, révélation ou confrontation, retombée et promesse du prochain chapitre.\n`
-    : "";
+  const cartoonEpisode = isCartoon ? getCartoonEpisode() : null;
+  
+  let actGuidance = "";
+  if (isManga) {
+    actGuidance = `- Ceci est le chapitre ${mangaEpisode.number}, publié le ${mangaEpisode.date}, de la série originale « ${mangaEpisode.title} ». Arc actuel : « ${mangaEpisode.arc.name} » — ${mangaEpisode.arc.goal}\n- Bible immuable : ${mangaEpisode.visualBible}\n- Raconte un épisode complet avec son propre mini-conflit, une avancée nette vers l'objectif de l'arc et une dernière image qui donne envie de voir le chapitre suivant. Ne résume jamais toute la saga en un seul épisode.\n- Répartis les ${segmentCount} scènes: rappel organique, enjeu du chapitre, obstacles, révélation ou confrontation, retombée et promesse du prochain chapitre.\n`;
+  } else if (isCartoon) {
+    const structure = cartoonEpisode.episodeStructure;
+    actGuidance = `- Ceci est l'épisode ${cartoonEpisode.number}, publié le ${cartoonEpisode.date}, de la série « ${cartoonEpisode.title} ». Arc actuel : « ${cartoonEpisode.arc.name} » — ${cartoonEpisode.arc.goal}\n- Thèmes de l'arc : ${cartoonEpisode.arc.themes.join(", ")}\n- Bible visuelle : ${cartoonEpisode.visualBible}\n- Structure de l'épisode : ${structure.opening} → ${structure.setup} → ${structure.conflict} → ${structure.resolution} → ${structure.lesson} → ${structure.teaser}\n- Raconte une aventure quotidienne avec des fruits qui parlent. Inclus un petit mystère, une rumeur ou un malentendu qui se résout toujours positivement par la communication et l'amitié.\n- Répartis les ${segmentCount} scènes selon la structure ci-dessus. Termine par une leçon de vie simple et positive.\n`;
+  }
 
   const instructions = `Tu es scénariste pour une vidéo verticale française animée.
 Format: ${theme.label}.
@@ -76,18 +83,34 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown:
   }
   if (!script) throw lastError || new Error("Impossible de générer le script.");
 
+  const episodeMetadata = {};
+  if (mangaEpisode) {
+    episodeMetadata.manga_episode = {
+      number: mangaEpisode.number,
+      date: mangaEpisode.date,
+      series_title: mangaEpisode.title,
+      arc: mangaEpisode.arc.name,
+      arc_goal: mangaEpisode.arc.goal,
+    };
+  }
+  if (cartoonEpisode) {
+    episodeMetadata.cartoon_episode = {
+      number: cartoonEpisode.number,
+      date: cartoonEpisode.date,
+      series_title: cartoonEpisode.title,
+      arc: cartoonEpisode.arc.name,
+      arc_goal: cartoonEpisode.arc.goal,
+      themes: cartoonEpisode.arc.themes,
+    };
+  }
+
   const output = {
     theme: themeId,
     theme_label: theme.label,
     visual_mode: theme.visualMode,
     visual_style: theme.visualStyle,
     segment_count: segmentCount,
-    manga_episode: mangaEpisode && {
-      number: mangaEpisode.number,
-      date: mangaEpisode.date,
-      series_title: mangaEpisode.title,
-      arc: mangaEpisode.arc.name,
-    },
+    ...episodeMetadata,
     script,
     generated_at: new Date().toISOString(),
   };
