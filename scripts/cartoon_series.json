@@ -1,0 +1,69 @@
+{
+  "title": "Les Aventures du Verger Magique",
+  "logline": "Dans un verger enchanté où les fruits prennent vie la nuit, Pomme la curieuse, Banane le sage et Fraise la téméraire naviguent entre amitiés, petits secrets et grandes leçons de vie.",
+  "visual_bible": "Colorful 3D cartoon style for children. Pomme is a round red apple with big green eyes, rosy cheeks, tiny arms and legs, wearing a small leaf hat. Banane is a tall yellow banana with glasses, gentle smile, wearing a brown vest. Fraise is a small pink strawberry with freckles, energetic pose, wearing a green cape made of leaves. Orange is a round orange with a mischievous grin, wearing a blue scarf. The orchard has magical glowing trees, soft pastel colors, friendly atmosphere. Characters are cute, expressive, non-scary. No text in images.",
+  "characters": [
+    {
+      "name": "Pomme",
+      "description": "Une pomme rouge curieuse et optimiste, toujours prête à aider",
+      "traits": ["curieuse", "gentille", "parfois naïve"],
+      "role": "protagoniste"
+    },
+    {
+      "name": "Banane",
+      "description": "Une banane sage et réfléchie, le mentor du groupe",
+      "traits": ["sage", "patient", "protecteur"],
+      "role": "mentor"
+    },
+    {
+      "name": "Fraise",
+      "description": "Une fraise téméraire et aventurière, pleine d'énergie",
+      "traits": ["courageuse", "impulsive", "loyale"],
+      "role": "amie proche"
+    },
+    {
+      "name": "Orange",
+      "description": "Une orange espiègle qui fait des bêtises mais apprend de ses erreurs",
+      "traits": ["espiègle", "créatif", "apprend vite"],
+      "role": "antagoniste léger"
+    }
+  ],
+  "arcs": [
+    {
+      "from": 1,
+      "to": 5,
+      "name": "Les Premiers Secrets",
+      "goal": "Pomme découvre que les fruits parlent la nuit et se fait ses premiers amis.",
+      "themes": ["amitié", "découverte", "confiance"]
+    },
+    {
+      "from": 6,
+      "to": 12,
+      "name": "La Rumeur du Verger",
+      "goal": "Une rumeur circule sur un fruit mystérieux. Le groupe apprend à vérifier les informations avant de juger.",
+      "themes": ["rumeurs", "vérité", "communication"]
+    },
+    {
+      "from": 13,
+      "to": 20,
+      "name": "Le Petit Mensonge",
+      "goal": "Orange cache une bêtise et doit apprendre l'importance de l'honnêteté.",
+      "themes": ["honnêteté", "responsabilité", "pardon"]
+    },
+    {
+      "from": 21,
+      "to": 30,
+      "name": "La Grande Aventure",
+      "goal": "Le groupe explore la partie interdite du verger et découvre un secret ancien.",
+      "themes": ["courage", "travail d'équipe", "curiosité"]
+    }
+  ],
+  "episode_structure": {
+    "opening": "Rappel organique de l'épisode précédent",
+    "setup": "Situation du jour avec un petit problème ou mystère",
+    "conflict": "Malentendu, rumeur, ou petite manipulation légère",
+    "resolution": "Les personnages résolvent le conflit positivement par la communication et l'amitié",
+    "lesson": "Une leçon de vie simple et positive",
+    "teaser": "Aperçu de l'aventure du lendemain"
+  }
+}

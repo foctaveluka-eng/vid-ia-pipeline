@@ -11,8 +11,9 @@
     "step3b": "node scripts/step3b_verify_audio.js",
     "step4": "node scripts/step4_assemble_video.js",
     "step5": "node scripts/step5_generate_filename.js",
-    "upload-drive": "node scripts/upload_drive.js",
-    "upload-youtube": "node scripts/upload_youtube.js"
+    "upload-youtube": "node scripts/upload_youtube.js",
+    "test": "node scripts/test_unit.js",
+    "test:integration": "node scripts/test_pipeline.js"
   },
   "dependencies": {
     "axios": "^1.6.0",

@@ -1,6 +1,6 @@
 /**
  * SCRIPT DE TEST — Pipeline réduit (3 segments seulement)
- * SANS ÉTAPE GOOGLE DRIVE
+ * Teste les 4 formats : dessin_anime, manga, actualites, horreur
  */
 
 "use strict";
@@ -9,6 +9,8 @@ const axios   = require("axios");
 const fs      = require("fs");
 const path    = require("path");
 const { execSync } = require("child_process");
+
+const { THEMES, getSegmentCount } = require("./pipeline_config");
 
 const NB_SEGMENTS_TEST = 3;
 const DELFA_API_URL    = process.env.DELFA_API_URL || "https://delfaapiai.vercel.app/ai/copilot";
@@ -66,8 +68,12 @@ function printResults() {
 }
 
 async function testGenerateScript() {
-  console.log("\n🧪 [TEST 1] Génération du script IA...");
-  const prompt = `Génère exactement ${NB_SEGMENTS_TEST} segments de test pour une vidéo courte sur l'IA.
+  console.log("\n🧪 [TEST 1] Génération du script...");
+  const themeId = "actualites";
+  const theme = THEMES[themeId];
+  const prompt = `Génère exactement ${NB_SEGMENTS_TEST} segments de test pour une vidéo courte format "${theme.label}".
+Sujet: ${theme.subject}.
+${theme.style}
 Renvoie UNIQUEMENT un JSON valide :
 {"segments": [{"id": 1, "audio_texte": "...", "prompt_visuel": "..."}]}`;
 
@@ -78,7 +84,9 @@ Renvoie UNIQUEMENT un JSON valide :
     });
 
     const clean = response.data.answer.replace(/```json|```/g, "").trim();
-    const data  = JSON.parse(clean);
+    const first = clean.indexOf("{");
+    const last = clean.lastIndexOf("}");
+    const data  = JSON.parse(clean.slice(first, last + 1));
 
     if (!data.segments || data.segments.length < 1) {
       throw new Error("Pas de segments dans la réponse");
@@ -91,13 +99,16 @@ Renvoie UNIQUEMENT un JSON valide :
     fs.writeFileSync(
       "./tmp_data_test/script_data.json",
       JSON.stringify({
-        theme: "ia",
-        character_ref_image: "https://drive.google.com/file/d/1Xa9ZzRhqWgEFlJxGAf-vF2fGDG2_LEQU/view",
+        theme: themeId,
+        theme_label: theme.label,
+        visual_mode: theme.visualMode,
+        visual_style: theme.visualStyle,
+        segment_count: NB_SEGMENTS_TEST,
         script: data.segments.slice(0, NB_SEGMENTS_TEST),
       }, null, 2)
     );
 
-    RESULTS.etape1_script = { ok: true, details: `${data.segments.length} segment(s) générés` };
+    RESULTS.etape1_script = { ok: true, details: `${data.segments.length} segment(s) générés (${themeId})` };
     console.log(`   ✅ ${data.segments.length} segments générés`);
     return data.segments.slice(0, NB_SEGMENTS_TEST);
 
@@ -115,8 +126,9 @@ async function testGenerateImage(segments) {
     return false;
   }
 
+  const scriptData = JSON.parse(fs.readFileSync("./tmp_data_test/script_data.json", "utf-8"));
   const seg = segments[0];
-  const prompt = `Character reference: portrait futuriste. Action: ${seg.prompt_visuel}`;
+  const prompt = `${scriptData.visual_style}. Scene: ${seg.prompt_visuel}`;
 
   try {
     const response = await axios.post(
@@ -125,7 +137,7 @@ async function testGenerateImage(segments) {
       { responseType: "arraybuffer", timeout: 90000 }
     );
 
-    fs.writeFileSync("./tmp_data_test/images/img_01.jpg", response.data);
+    fs.writeFileSync("./tmp_data_test/images/img_001.jpg", response.data);
     const taille = (response.data.byteLength / 1024).toFixed(0);
 
     RESULTS.etape2_images = { ok: true, details: `Image générée (${taille} Ko)` };
@@ -156,7 +168,7 @@ async function testGenerateAudio(segments) {
       timeout: 30000,
     });
 
-    fs.writeFileSync("./tmp_data_test/audio/audio_01.mp3", response.data);
+    fs.writeFileSync("./tmp_data_test/audio/audio_001.mp3", response.data);
     const taille = (response.data.byteLength / 1024).toFixed(0);
 
     RESULTS.etape3_audio = { ok: true, details: `Audio TTS généré (${taille} Ko)` };
@@ -185,8 +197,8 @@ async function testAssembleVideo(imageOk, audioOk) {
     return false;
   }
 
-  const imgPath  = "./tmp_data_test/images/img_01.jpg";
-  const audPath  = "./tmp_data_test/audio/audio_01.mp3";
+  const imgPath  = "./tmp_data_test/images/img_001.jpg";
+  const audPath  = "./tmp_data_test/audio/audio_001.mp3";
   const outPath  = "./tmp_data_test/video_test.mp4";
 
   try {
@@ -257,8 +269,18 @@ function cleanup() {
 
 async function main() {
   console.log("=".repeat(60));
-  console.log("🚀 TEST DU VID IA PIPELINE (SANS DRIVE)");
+  console.log("🚀 TEST DU VID IA PIPELINE");
   console.log("=".repeat(60));
+
+  // Vérifier que les 4 formats sont bien définis
+  const expectedThemes = ["dessin_anime", "manga", "actualites", "horreur"];
+  for (const themeId of expectedThemes) {
+    if (!THEMES[themeId]) {
+      console.error(`❌ Format manquant : ${themeId}`);
+      process.exit(1);
+    }
+    console.log(`✅ Format "${themeId}" : ${THEMES[themeId].label}`);
+  }
 
   const segments = await testGenerateScript();
   await attendre(1000);
