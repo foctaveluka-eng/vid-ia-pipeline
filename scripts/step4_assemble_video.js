@@ -55,8 +55,14 @@ function getAudioDuration(ffmpegBin, filePath) {
 }
 
 // ─── Génération d'un clip unique (image + audio + fades) ─────────────────────
-function generateClip(ffmpegBin, pathImg, pathAudio, clipPath, dureeAudio) {
+function generateClip(ffmpegBin, pathImg, pathAudio, clipPath, dureeAudio, clipIndex) {
   const dureeClip = dureeAudio + BUFFER_CLIP;
+  const frames = Math.max(1, Math.ceil(dureeClip * 30));
+  // Chaque plan reçoit un travelling numérique (Ken Burns). Les illustrations,
+  // notamment les planches manga, ne restent donc jamais statiques à l'écran.
+  const move = clipIndex % 2 === 0
+    ? `zoompan=z='min(zoom+0.0008,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=1080x1920:fps=30`
+    : `zoompan=z='min(zoom+0.0008,1.12)':x='iw-iw/zoom':y='ih/2-(ih/zoom/2)':d=${frames}:s=1080x1920:fps=30`;
 
   // Le fade-out COMMENCE avant la fin de l'audio pour ne pas couper le son
   const debutFadeOut = Math.max(0, dureeAudio - FADE_OUT_ANTICIPATION - FADE_OUT_DURATION);
@@ -70,14 +76,14 @@ function generateClip(ffmpegBin, pathImg, pathAudio, clipPath, dureeAudio) {
   const cmd = [
     `"${ffmpegBin}"`,
     `-y`,
-    `-loop 1 -i "${pathImg}"`,   // image en boucle
-    `-i "${pathAudio}"`,          // audio
+    `-loop 1 -framerate 30 -i "${pathImg}"`, // plan source
+    `-i "${pathAudio}"`,                         // audio
     `-filter_complex`,
     `"[1:a]${audioFilter}[aout]"`,
     `-map 0:v`,
     `-map "[aout]"`,
     `-c:v libx264 -preset veryfast -pix_fmt yuv420p`,
-    `-vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2"`,
+    `-vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,${move},format=yuv420p"`,
     `-c:a aac -b:a 128k`,
     `-t ${dureeClip.toFixed(3)}`,
     `-shortest`,
@@ -196,7 +202,9 @@ async function main() {
 
   const poolImages = imagesInfo.imagesList;
   const poolAudios = audioInfo.audiosList;
-  const maxClips   = Math.min(poolImages.length, poolAudios.length, 16);
+  const scriptData = JSON.parse(fs.readFileSync("./tmp_data/script_data.json", "utf-8"));
+  const expectedClips = Array.isArray(scriptData.script) ? scriptData.script.length : 0;
+  const maxClips = Math.min(poolImages.length, poolAudios.length, expectedClips);
 
   if (maxClips === 0) {
     console.error("❌ Aucun fichier image ou audio trouvé.");
@@ -211,9 +219,9 @@ async function main() {
   const clipsGeneres = [];
 
   for (let i = 0; i < maxClips; i++) {
-    const clipPath    = path.join(dossierClips, `clip_${String(i + 1).padStart(2, "0")}.mp4`);
+    const clipPath    = path.join(dossierClips, `clip_${String(i + 1).padStart(3, "0")}.mp4`);
     const dureeAudio  = getAudioDuration(ffmpegBin, poolAudios[i]);
-    const numStr      = String(i + 1).padStart(2, "0");
+    const numStr      = String(i + 1).padStart(3, "0");
 
     // Si le clip existe déjà et n'est pas vide, on passe
     if (fs.existsSync(clipPath) && fs.statSync(clipPath).size > 0) {
@@ -223,7 +231,7 @@ async function main() {
     }
 
     try {
-      generateClip(ffmpegBin, poolImages[i], poolAudios[i], clipPath, dureeAudio);
+      generateClip(ffmpegBin, poolImages[i], poolAudios[i], clipPath, dureeAudio, i);
       clipsGeneres.push(clipPath);
       console.log(`✅ Clip ${numStr} — ${dureeAudio.toFixed(1)}s audio → ${(dureeAudio + BUFFER_CLIP).toFixed(1)}s clip`);
     } catch (err) {
