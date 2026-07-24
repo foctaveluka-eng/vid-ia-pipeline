@@ -1,117 +1,50 @@
-/**
- * ÉTAPE 2 — Génération des Images (par packs de 5)
- * Adapté depuis CODE 1 de Pipedream
- *
- * - Lit le script depuis ./tmp_data/script_data.json
- * - Génère les 16 images en parallèle par packs de 5
- * - Sauvegarde dans ./tmp_data/images/
- */
-
+/** ÉTAPE 2 — Génération des planches illustrées, par packs de 5. */
 "use strict";
-
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
-
-const IMAGE_API_URL =
-  process.env.IMAGE_API_URL || "https://gem-tw6a.onrender.com/generate";
-
-// Fonction utilitaire pour créer une pause
+const IMAGE_API_URL = process.env.IMAGE_API_URL || "https://gem-tw6a.onrender.com/generate";
 const attendre = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function main() {
-  // 1. Lecture des données du script
-  if (!fs.existsSync("./tmp_data/script_data.json")) {
-    console.error("❌ Fichier script_data.json introuvable. Lancez d'abord l'étape 1.");
-    process.exit(1);
-  }
-
-  const scriptData = JSON.parse(
-    fs.readFileSync("./tmp_data/script_data.json", "utf-8")
-  );
-  const segments = scriptData.script;
-  const characterDriveUrl = scriptData.character_ref_image;
-  const theme = scriptData.theme;
-
-  // 2. Création du dossier d'images
-  const imagesFolder = path.join("./tmp_data", "images");
-  fs.mkdirSync(imagesFolder, { recursive: true });
-
-  const outputImages = [];
-  console.log(`🚀 Génération parallèle (par packs de 5) pour le thème : ${theme}`);
-
-  // 3. Découpage des 16 segments en paquets de 5
-  const taillePack = 5;
-
-  for (let i = 0; i < segments.length; i += taillePack) {
-    const pack = segments.slice(i, i + taillePack);
-    console.log(
-      `📦 Traitement du pack d'images de l'index ${i} à ${i + pack.length - 1}...`
-    );
-
-    // Création des promesses pour le pack actuel
-    const promessesPack = pack.map(async (seg, indexDansPack) => {
-      const indexGlobal = i + indexDansPack;
-      const indexStr = String(indexGlobal + 1).padStart(2, "0");
-      const promptFinal = `Character reference: ${characterDriveUrl}. Action: ${seg.prompt_visuel}.`;
-      const pathImage = path.join(imagesFolder, `img_${indexStr}.jpg`);
-
-      // Si l'image existe déjà et n'est pas vide, on la saute
-      if (fs.existsSync(pathImage) && fs.statSync(pathImage).size > 0) {
-        console.log(`⏭️  Image ${indexStr} déjà présente, passage suivant.`);
-        outputImages.push(pathImage);
-        return;
-      }
-
-      try {
-        const response = await axios.post(
-          IMAGE_API_URL,
-          {
-            prompt: promptFinal,
-            ratio: "9:16",
-            format: "jpg",
-          },
-          {
-            responseType: "arraybuffer",
-            timeout: 90000,
-          }
-        );
-
-        fs.writeFileSync(pathImage, response.data);
-        outputImages.push(pathImage);
-        console.log(`✅ Image ${indexStr} générée.`);
-      } catch (err) {
-        console.error(`❌ Échec Image ${indexStr}:`, err.message);
-      }
-    });
-
-    // Lancement du pack en simultané
-    await Promise.all(promessesPack);
-
-    // Pause d'une seconde avant le prochain pack (sauf si c'est le dernier)
-    if (i + taillePack < segments.length) {
-      console.log("⏱️  Pause de 1 seconde avant le prochain groupe...");
-      await attendre(1000);
-    }
-  }
-
-  console.log(`\n🎉 Génération parallèle terminée ! ${outputImages.length}/16 images créées.`);
-  console.log(`📁 Dossier : ${imagesFolder}`);
-
-  // 4. Sauvegarde de la liste d'images pour les étapes suivantes
-  const imagesInfo = {
-    folder: imagesFolder,
-    totalFiles: outputImages.length,
-    imagesList: outputImages.sort(),
-  };
-  fs.writeFileSync(
-    "./tmp_data/images_info.json",
-    JSON.stringify(imagesInfo, null, 2),
-    "utf-8"
-  );
+function visualPrompt(scriptData, segment) {
+  const movement = scriptData.visual_mode === "manga_motion"
+    ? "Compose for camera movement: clear foreground, middle ground and background; leave no speech bubbles."
+    : "Compose for subtle cinematic camera movement with clear foreground and background.";
+  return `${scriptData.visual_style || "cinematic animated illustration"}. Scene: ${segment.prompt_visuel}. ${movement}`;
 }
 
-main().catch((err) => {
-  console.error("❌ Erreur fatale :", err.message);
-  process.exit(1);
-});
+async function main() {
+  if (!fs.existsSync("./tmp_data/script_data.json")) throw new Error("script_data.json introuvable. Lancez l'étape 1.");
+  const scriptData = JSON.parse(fs.readFileSync("./tmp_data/script_data.json", "utf-8"));
+  const segments = scriptData.script;
+  if (!Array.isArray(segments) || !segments.length) throw new Error("Aucun segment à illustrer.");
+
+  const imagesFolder = path.join("./tmp_data", "images");
+  fs.mkdirSync(imagesFolder, { recursive: true });
+  const outputImages = [];
+  const batchSize = 5;
+  console.log(`🖼️ Génération de ${segments.length} illustrations pour ${scriptData.theme_label || scriptData.theme}.`);
+
+  for (let i = 0; i < segments.length; i += batchSize) {
+    const batch = segments.slice(i, i + batchSize);
+    await Promise.all(batch.map(async (segment, offset) => {
+      const position = i + offset;
+      const number = String(position + 1).padStart(3, "0");
+      const imagePath = path.join(imagesFolder, `img_${number}.jpg`);
+      if (fs.existsSync(imagePath) && fs.statSync(imagePath).size > 0) { outputImages.push(imagePath); return; }
+      try {
+        const response = await axios.post(IMAGE_API_URL, { prompt: visualPrompt(scriptData, segment), ratio: "9:16", format: "jpg" }, { responseType: "arraybuffer", timeout: 90000 });
+        if (!response.data?.byteLength) throw new Error("réponse image vide");
+        fs.writeFileSync(imagePath, response.data);
+        outputImages.push(imagePath);
+        console.log(`✅ Illustration ${number} générée.`);
+      } catch (error) { console.error(`❌ Illustration ${number}: ${error.message}`); }
+    }));
+    if (i + batchSize < segments.length) await attendre(1000);
+  }
+  outputImages.sort();
+  fs.writeFileSync("./tmp_data/images_info.json", JSON.stringify({ folder: imagesFolder, totalFiles: outputImages.length, imagesList: outputImages }, null, 2));
+  console.log(`🎉 ${outputImages.length}/${segments.length} illustrations générées.`);
+}
+main().catch((error) => { console.error("❌ Erreur fatale:", error.message); process.exit(1); });
+module.exports = { visualPrompt };

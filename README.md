@@ -1,64 +1,57 @@
-# 🎬 Vid IA Pipeline — GitHub Actions
+# 🎬 Vid IA Pipeline
 
-Workflow d'automatisation de génération vidéo IA — s'exécute **gratuitement toutes les 8 heures** sur GitHub Actions.
+Pipeline GitHub Actions de création et publication de vidéos verticales en français. Il produit désormais des **séquences illustrées animées** : chaque plan reçoit un travelling/zoom cinématique (Ken Burns) et des fondus, au lieu d'afficher une image immobile.
 
-## 📋 Architecture du Pipeline
+## Les 4 formats
 
-```
-Heure → Thème (IA / Monde / Horreur)
-  ↓
-[Étape 1] Génération du script 16 segments (Delfa API)
-  ↓
-[Étape 2] Génération des 16 images (par packs de 5)
-  ↓
-[Étape 2b] Vérification & correction des images manquantes
-  ↓
-[Étape 3] Génération des 16 audios TTS (Google Translate)
-  ↓
-[Étape 3b] Vérification & correction des audios manquants
-  ↓
-[Étape 4] Assemblage de la vidéo finale (FFmpeg)
-  ↓
-[Étape 5] Génération du titre et du nom de fichier
-  ↓
-[Étape 6] Upload sur Google Drive
-  ↓
-[Étape 7] Publication sur YouTube
+| Format | Créneau automatique (Europe/Paris) | Contenu |
+|---|---:|---|
+| `ia` | matin, 06h–11h | Histoire IA animée, racontée comme un thriller technologique |
+| `reportage` | midi/après-midi, 12h–17h | Vrai mini-reportage sur un fait récent et vérifiable |
+| `horreur` | soir, 18h–23h | Moment d'horreur immersif |
+| `manga` | nuit, 00h–05h | Manga original long, avec une histoire complète |
+
+Le manga est publié à raison d'**un chapitre par jour**. Chaque chapitre compte **48 scènes par défaut** (configurable de 24 à 120 avec `MANGA_SEGMENTS`) et appartient à la série originale *Les Veilleurs d'Obsidienne*. Un numéro d'épisode est calculé depuis `MANGA_SERIES_START_DATE`, tandis qu'une bible de personnages et des arcs narratifs maintiennent la continuité quotidienne. Les prompts demandent des planches noir et blanc sans texte ni bulles et excluent les franchises, personnages et designs existants : le projet ne reprend pas JJK, Solo Leveling ou leurs images.
+
+## Pipeline
+
+```text
+Sélection du format → scénario dynamique (16 scènes / 48 manga)
+  → illustrations ou planches manga par lots
+  → réparation des médias manquants
+  → voix française TTS
+  → montage vertical animé (travelling + fondus)
+  → titre / hashtags → publication YouTube
 ```
 
-## ⚙️ Configuration des Secrets GitHub
+Les quatre exécutions quotidiennes GitHub Actions déclenchent le pipeline. Le script utilise le fuseau `Europe/Paris`, donc l'heure d'été est correctement prise en compte.
 
-Dans votre dépôt GitHub : **Settings → Secrets and variables → Actions → New repository secret**
+## Lancement manuel
 
-| Secret | Valeur |
-|---|---|
-| `GOOGLE_CLIENT_ID` | `773039062438-fti1unik531h7qj41kas7l7p5k76fdpj.apps.googleusercontent.com` |
-| `GOOGLE_CLIENT_SECRET` | `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` |
-| `GOOGLE_REFRESH_TOKEN` | `1//04V49EAzx0D8NCgYIARAAGAQSNwF-L9IrVDGA0QXjjRCDJCRlienCDPDXykHcHtN0dHjeyGUakyBhVOjBIcnIa1ARpLnFE_fHKHM` |
-| `DRIVE_FOLDER_ID` | `1qQMktB0Ti_BkuSrSQoRyr9ohHZ4X8mYg` |
-| `DELFA_API_URL` | `https://delfaapiai.vercel.app/ai/copilot` |
-| `IMAGE_API_URL` | `https://gem-tw6a.onrender.com/generate` |
+Dans **Actions → Vid IA Pipeline → Run workflow**, choisir l'un des formats : `ia`, `reportage`, `horreur` ou `manga`. Choisir `auto` laisse le script sélectionner le format à partir de l'heure de Paris.
 
-## 🚀 Déploiement sur GitHub
+Pour un manga plus long, définir par exemple `manga_segments` à `72`. Les limites acceptées sont 24 à 120.
+
+En local :
 
 ```bash
-# 1. Initialiser le dépôt Git
-git init
-git add .
-git commit -m "🚀 Initial commit — Vid IA Pipeline"
-
-# 2. Créer un nouveau dépôt sur GitHub (github.com/new)
-# 3. Lier et pousser
-git remote add origin https://github.com/VOTRE_USERNAME/vid-ia-pipeline.git
-git branch -M main
-git push -u origin main
+npm install
+PIPELINE_THEME=manga MANGA_SEGMENTS=48 npm run step1
+npm run step2 && npm run step2b
+npm run step3 && npm run step3b
+npm run step4 && npm run step5
 ```
 
-## ⏰ Déclenchement
+## Configuration
 
-Le workflow se lance automatiquement :
-- **04h00** (Paris) → Thème **IA** 🤖
-- **12h00** (Paris) → Thème **Monde** 🌍
-- **20h00** (Paris) → Thème **Horreur** 👻
+Copier `.env.example` vers `.env` en local, puis renseigner les variables. Dans GitHub, les mêmes valeurs doivent être ajoutées dans **Settings → Secrets and variables → Actions**.
 
-Ou **manuellement** depuis GitHub → Actions → Vid IA Pipeline → Run workflow.
+| Secret / variable | Rôle |
+|---|---|
+| `DELFA_API_URL` | Génération des scripts et titres |
+| `IMAGE_API_URL` | Génération des illustrations/planches manga |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` | Publication YouTube |
+| `PIPELINE_THEME` | Optionnel : force `ia`, `reportage`, `horreur` ou `manga` |
+| `MANGA_SEGMENTS` | Optionnel : 24–120, défaut 48 |
+
+Ne commitez jamais un fichier `.env` ni des secrets.

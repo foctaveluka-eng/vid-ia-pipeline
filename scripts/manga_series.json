@@ -1,0 +1,12 @@
+{
+  "title": "Les Veilleurs d'Obsidienne",
+  "logline": "Dans une cité bâtie autour d'un soleil noir, Mika, une jeune messagère capable d'entendre les souvenirs de l'encre, rejoint les Veilleurs pour empêcher l'effacement du monde.",
+  "visual_bible": "Original black-and-white manga. Mika Soryn is a 20-year-old woman with short black hair, a white messenger coat with a broken obsidian compass brooch, dark trousers and boots. Ilyan Voss is a 27-year-old man with long tied-back hair, a dark sleeveless coat and a mechanical ink gauntlet. The city of Orne has narrow stone streets, suspended lanterns and monumental black-glass towers. Never use characters, uniforms, symbols, names, scenes or designs from existing franchises.",
+  "arcs": [
+    { "from": 1, "to": 3, "name": "L'Encre qui s'efface", "goal": "Mika découvre son pouvoir et accepte de rejoindre les Veilleurs." },
+    { "from": 4, "to": 8, "name": "Les Archives noyées", "goal": "L'équipe cherche l'origine des pages qui disparaissent sous la cité." },
+    { "from": 9, "to": 13, "name": "Le Masque d'ardoise", "goal": "Mika affronte le collectionneur qui vole les souvenirs des habitants." },
+    { "from": 14, "to": 18, "name": "Le Soleil noir", "goal": "Les Veilleurs atteignent le cœur de la tour et découvrent la vérité sur le soleil." },
+    { "from": 19, "to": 24, "name": "Le Dernier Veilleur", "goal": "La saga se conclut par le choix de Mika entre sauver Orne et préserver ses propres souvenirs." }
+  ]
+}

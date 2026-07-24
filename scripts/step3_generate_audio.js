@@ -41,7 +41,7 @@ async function main() {
 
     const promessesPack = pack.map(async (seg, indexDansPack) => {
       const indexGlobal = i + indexDansPack;
-      const indexStr = String(indexGlobal + 1).padStart(2, "0");
+      const indexStr = String(indexGlobal + 1).padStart(3, "0");
       const pathAudio = path.join(audioFolder, `audio_${indexStr}.mp3`);
 
       // Si le fichier audio existe déjà et n'est pas vide, on passe
@@ -85,7 +85,7 @@ async function main() {
     .filter((p) => fs.statSync(p).size > 0)
     .sort();
 
-  console.log(`\n🎉 Génération TTS terminée ! ${audiosGeneres.length}/16 audios créés.`);
+  console.log(`\n🎉 Génération TTS terminée ! ${audiosGeneres.length}/${segments.length} audios créés.`);
 
   // 4. Sauvegarde des informations audio
   const audioInfo = {

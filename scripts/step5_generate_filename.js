@@ -18,17 +18,23 @@ const DELFA_API_URL =
 // Hashtags par thème (fidèle à l'original)
 const themeHashtags = {
   ia: ["#AI", "#ArtificialIntelligence", "#MachineLearning", "#Tech", "#Innovation"],
+  reportage: ["#Reportage", "#Actualite", "#Monde", "#Info", "#Journalisme"],
   monde: ["#WorldNews", "#GlobalNews", "#News", "#International", "#CurrentEvents"],
   horreur: ["#Horror", "#Scary", "#CreepyStories", "#Thriller", "#DarkTales"],
+  manga: ["#Manga", "#MangaFr", "#OriginalStory", "#AnimeStyle", "#Storytelling"],
 };
 
 // Prompts pour la génération de titre par thème
 const themePrompts = {
   ia: "Génère un titre de vidéo accrocheur et professionnel en français sur l'intelligence artificielle, la technologie ou l'innovation. Le titre doit être engageant et adapté à YouTube/Facebook. Renvoie UNIQUEMENT le texte du titre, rien d'autre.",
+  reportage:
+    "Génère un titre de vidéo professionnel en français pour un vrai reportage sur un fait d'actualité vérifiable. Le titre doit être précis et engageant. Renvoie UNIQUEMENT le texte du titre.",
   monde:
     "Génère un titre de vidéo accrocheur et professionnel en français sur l'actualité mondiale ou les événements internationaux récents. Le titre doit être engageant et adapté à YouTube/Facebook. Renvoie UNIQUEMENT le texte du titre, rien d'autre.",
   horreur:
     "Génère un titre de vidéo accrocheur et professionnel en français sur l'horreur, les histoires effrayantes ou le thriller. Le titre doit être engageant et adapté à YouTube/Facebook. Renvoie UNIQUEMENT le texte du titre, rien d'autre.",
+  manga:
+    "Génère un titre français mémorable pour un manga original racontant une histoire complète. Le titre est court, sans référence à une franchise existante. Renvoie UNIQUEMENT le texte du titre.",
 };
 
 async function main() {
@@ -42,6 +48,7 @@ async function main() {
     fs.readFileSync("./tmp_data/script_data.json", "utf-8")
   );
   const theme = scriptData.theme;
+  const mangaEpisode = scriptData.manga_episode;
 
   console.log(`🎨 Génération du titre pour le thème : ${theme.toUpperCase()}`);
 
@@ -49,7 +56,10 @@ async function main() {
 
   try {
     // 2. Appel à l'API Delfa pour générer un titre
-    const prompt = themePrompts[theme] || themePrompts.ia;
+    const basePrompt = themePrompts[theme] || themePrompts.ia;
+    const prompt = mangaEpisode
+      ? `${basePrompt} La vidéo est le chapitre ${mangaEpisode.number} de « ${mangaEpisode.series_title} », arc « ${mangaEpisode.arc} ». Inclus « Chapitre ${mangaEpisode.number} » dans le titre.`
+      : basePrompt;
     const response = await axios.get(DELFA_API_URL, {
       params: { model: "default", message: prompt },
       timeout: 30000,
@@ -68,11 +78,17 @@ async function main() {
     // Titre de secours
     const titresSecours = {
       ia: `Intelligence Artificielle : La Révolution Continue`,
+      reportage: `Reportage : Ce Qui Se Passe En Ce Moment`,
       monde: `Actualité Mondiale : Ce Qui Se Passe En Ce Moment`,
       horreur: `Histoire d'Horreur : La Nuit La Plus Longue`,
+      manga: `Manga Original : Le Dernier Chapitre`,
     };
     generatedTitle = titresSecours[theme] || titresSecours.ia;
     console.log(`🔄 Titre de secours utilisé : "${generatedTitle}"`);
+  }
+
+  if (mangaEpisode && !new RegExp(`chapitre\\s*${mangaEpisode.number}`, "i").test(generatedTitle)) {
+    generatedTitle = `Les Veilleurs d’Obsidienne — Chapitre ${mangaEpisode.number} : ${generatedTitle}`;
   }
 
   // 3. Génération du nom de fichier propre (sans accents ni caractères spéciaux)
@@ -99,6 +115,7 @@ async function main() {
     filename: filename,
     hashtags: hashtagString,
     theme: theme,
+    manga_episode: mangaEpisode || undefined,
     created_at: new Date().toISOString(),
   };
 

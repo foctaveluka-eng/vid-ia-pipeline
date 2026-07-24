@@ -2,7 +2,7 @@
  * ÉTAPE 3b — Vérification et Correction des Audios Manquants
  * Adapté depuis CODE 4 de Pipedream
  *
- * - Vérifie que les 16 fichiers audio MP3 existent et ne sont pas vides
+ * - Vérifie que tous les fichiers audio MP3 existent et ne sont pas vides
  * - Régénère uniquement les audios manquants via Google TTS
  * - Met à jour ./tmp_data/audio_info.json
  */
@@ -36,7 +36,7 @@ async function main() {
 
   // 2. Scan des 16 fichiers audio attendus
   for (let i = 0; i < segments.length; i++) {
-    const indexStr = String(i + 1).padStart(2, "0");
+    const indexStr = String(i + 1).padStart(3, "0");
     const pathAudio = path.join(audioFolder, `audio_${indexStr}.mp3`);
 
     if (!fs.existsSync(pathAudio) || fs.statSync(pathAudio).size === 0) {
@@ -89,7 +89,7 @@ async function main() {
     .filter((p) => fs.existsSync(p) && fs.statSync(p).size > 0)
     .sort();
 
-  console.log(`\n✅ Vérification terminée : ${audiosFinaux.length}/16 fichiers audio collectés.`);
+  console.log(`\n✅ Vérification terminée : ${audiosFinaux.length}/${segments.length} fichiers audio collectés.`);
 
   // 5. Mise à jour du fichier d'information
   const audioInfo = {
@@ -103,9 +103,9 @@ async function main() {
     "utf-8"
   );
 
-  if (audiosFinaux.length < 16) {
+  if (audiosFinaux.length < segments.length) {
     console.error(
-      `❌ Impossible de continuer : seulement ${audiosFinaux.length}/16 audios disponibles.`
+      `❌ Impossible de continuer : seulement ${audiosFinaux.length}/${segments.length} audios disponibles.`
     );
     process.exit(1);
   }
