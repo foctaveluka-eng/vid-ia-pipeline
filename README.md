@@ -105,3 +105,15 @@ Ne committez jamais `.env`.
 - **Concat pro** : tente `xfade` + `acrossfade` (0.5s), fallback concat demuxer `-c copy` puis ré-encodage
 - **FFmpeg** : système Ubuntu + `@ffmpeg-installer` + `@ffprobe-installer`
 - **Compat** : anciens `images_info.json` / `audio_info.json` toujours générés factices pour compatibilité, mais plus utilisés
+
+## Continuité et personnages (v3)
+
+Le scénario inclut maintenant une `character_bible`, un verrou de personnage par scène et un plan `continuity` validé. Chaque clip cible **5 à 10 secondes**. L'étape 2 crée d'abord une image canonique, puis l'envoie au fournisseur image-to-video (`image` et `reference_image` en base64) avec les verrous de continuité; l'assemblage local utilise cette même image si l'API ne répond pas.
+
+Pour créer une démo locale sans clés API (clips colorés et son de démonstration, pas une vidéo IA), exécuter :
+
+```bash
+npm run demo
+```
+
+Les fichiers sont placés dans `demo_output/`, volontairement ignoré par Git.
