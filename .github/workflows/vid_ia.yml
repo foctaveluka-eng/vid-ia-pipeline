@@ -42,31 +42,24 @@ jobs:
       # ──────────────────────────────────────────────────────────
       # ÉTAPES DE GÉNÉRATION
       # ──────────────────────────────────────────────────────────
-      - name: "🤖 ÉTAPE 1 — Génération du script IA (16 segments)"
+      - name: "🤖 ÉTAPE 1 — Génération du script viral et plan de continuité"
         run: node scripts/step1_generate_script.js
         timeout-minutes: 5
         env:
           DELFA_API_URL: ${{ secrets.DELFA_API_URL }}
 
-      - name: "🖼️ ÉTAPE 2 — Génération des 16 images (packs de 5)"
-        run: node scripts/step2_generate_images.js
-        timeout-minutes: 30
+      - name: "🎞️ ÉTAPE 2 — Images de référence → clips vidéo avec audio"
+        run: node scripts/step2_generate_videos.js
+        timeout-minutes: 60
         env:
           IMAGE_API_URL: ${{ secrets.IMAGE_API_URL }}
+          VIDEO_API_URL: ${{ secrets.VIDEO_API_URL }}
 
-      - name: "🔍 ÉTAPE 2b — Vérification et correction des images manquantes"
+      - name: "🔍 ÉTAPE 2b — Vérification des clips générés"
         run: node scripts/step2b_verify_images.js
         timeout-minutes: 15
         env:
           IMAGE_API_URL: ${{ secrets.IMAGE_API_URL }}
-
-      - name: "🎙️ ÉTAPE 3 — Génération des 16 audios TTS"
-        run: node scripts/step3_generate_audio.js
-        timeout-minutes: 10
-
-      - name: "🔍 ÉTAPE 3b — Vérification et correction des audios manquants"
-        run: node scripts/step3b_verify_audio.js
-        timeout-minutes: 10
 
       - name: "🎬 ÉTAPE 4 — Assemblage de la vidéo finale (FFmpeg)"
         run: node scripts/step4_assemble_video.js
@@ -79,12 +72,12 @@ jobs:
           DELFA_API_URL: ${{ secrets.DELFA_API_URL }}
 
       # ──────────────────────────────────────────────────────────
-      # ÉTAPE PUBLICATION YOUTUBE (DRIVE ENLEVÉ)
+      # ÉTAPE PUBLICATION YOUTUBE
       # ──────────────────────────────────────────────────────────
       - name: "▶️ ÉTAPE 6 — Publication sur YouTube"
         run: node scripts/upload_youtube.js
         timeout-minutes: 15
         env:
-          GOOGLE_CLIENT_ID:     ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
