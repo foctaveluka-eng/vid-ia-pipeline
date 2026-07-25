@@ -1,59 +1,52 @@
 /**
- * ÉTAPE 1 — Génère le scénario des quatre formats éditoriaux.
- * Version robuste : tolère les variations de taille, tente POST et GET,
- * et fournit un fallback local si l'API Delfa est indisponible.
- * Les mangas utilisent 48 scènes par défaut afin de raconter une histoire complète.
+ * ÉTAPE 1 — PRO VIRAL : Génération de scénario qui buzz
+ * - Utilise viral_engine pour structures qui retiennent et font commenter
+ * - Hook 0-3s, pattern interrupts, twist 70%, CTA viral
+ * - Scoring de viralité et retry si score faible
  */
+
 "use strict";
 
 const axios = require("axios");
 const fs = require("fs");
 const { THEMES, getThemeFromEnvironment, getSegmentCount, getMangaEpisode, getCartoonEpisode } = require("./pipeline_config");
+const {
+  VIRAL_HOOKS,
+  CTA_TEMPLATES,
+  getViralBeats,
+  scoreVirality,
+  generateViralPromptAddendum,
+} = require("./viral_engine");
 
 const DELFA_API_URL = process.env.DELFA_API_URL || "https://delfaapiai.vercel.app/ai/copilot";
 const MAX_ATTEMPTS = 5;
-const REQUEST_TIMEOUT = 180000; // 3 min par requête, les modèles longs (48 scènes) prennent du temps
+const REQUEST_TIMEOUT = 180000;
 
 function stripJson(answer) {
   const raw = String(answer || "").trim();
   if (!raw) throw new Error("Réponse vide");
-  // Nettoie les fences markdown
   const cleaned = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
-
-  // Essai direct JSON.parse
   try {
     const direct = JSON.parse(cleaned);
     if (direct && typeof direct === "object") return direct;
   } catch {}
-
-  // Recherche du premier { au dernier }
   const first = cleaned.indexOf("{");
   const last = cleaned.lastIndexOf("}");
   if (first !== -1 && last !== -1 && last > first) {
-    const slice = cleaned.slice(first, last + 1);
     try {
-      return JSON.parse(slice);
+      return JSON.parse(cleaned.slice(first, last + 1));
     } catch (e) {
-      // Tentative de réparation : le modèle renvoie parfois des virgules traînantes ou des sauts de ligne mal formés
-      // On tente de trouver un tableau segments
-      const arrayMatch = slice.match(/"segments"\s*:\s*\[/);
-      if (arrayMatch) {
-        // On laisse l'erreur remonter pour retry, mais message plus clair
-        throw new Error(`JSON invalide après extraction: ${e.message}`);
-      }
-      throw e;
+      throw new Error(`JSON invalide: ${e.message}`);
     }
   }
-  throw new Error("La réponse ne contient pas d'objet JSON.");
+  throw new Error("Pas de JSON");
 }
 
 function normalizeResponse(data) {
-  // L'API peut renvoyer {answer: "...json..."} ou directement {segments: [...]}
-  // ou {result: ...} ou une string.
-  if (!data) throw new Error("Réponse API vide");
+  if (!data) throw new Error("vide");
   if (typeof data === "string") return stripJson(data);
   if (Array.isArray(data)) return { segments: data };
-  if (data.segments && Array.isArray(data.segments)) return data;
+  if (data.segments) return data;
   if (data.answer) {
     if (typeof data.answer === "object" && data.answer.segments) return data.answer;
     return stripJson(data.answer);
@@ -62,138 +55,130 @@ function normalizeResponse(data) {
     if (typeof data.result === "string") return stripJson(data.result);
     if (data.result.segments) return data.result;
   }
-  // Dernière chance : l'objet lui-même est peut-être le JSON attendu
   return stripJson(JSON.stringify(data));
 }
 
 function validateSegments(segments, expected) {
-  if (!Array.isArray(segments) || segments.length === 0) {
-    throw new Error(`Le script doit contenir au moins 1 segment (reçu: ${segments?.length ?? 0}).`);
-  }
-
-  // Tolérance : si le modèle renvoie plus que demandé, on tronque (cas fréquent avec 48 scènes)
+  if (!Array.isArray(segments) || segments.length === 0) throw new Error(`Reçu ${segments?.length ?? 0} segments`);
   let working = segments;
   if (segments.length > expected) {
-    console.warn(`⚠️ Modèle a renvoyé ${segments.length} segments au lieu de ${expected}, on tronque aux ${expected} premiers.`);
+    console.warn(`⚠️ ${segments.length} > ${expected}, tronque`);
     working = segments.slice(0, expected);
   } else if (segments.length < expected) {
-    throw new Error(`Le script doit contenir exactement ${expected} segments (reçu: ${segments.length}).`);
+    throw new Error(`Besoin ${expected}, reçu ${segments.length}`);
   }
-
-  return working.map((segment, index) => {
-    const audio = String(segment?.audio_texte || segment?.audio || segment?.text || "").trim();
-    const visual = String(segment?.prompt_visuel || segment?.visual || segment?.prompt || "").trim();
-    if (!audio || !visual) throw new Error(`Segment ${index + 1} incomplet (audio_texte et prompt_visuel sont obligatoires).`);
-    return { id: index + 1, audio_texte: audio, prompt_visuel: visual };
+  return working.map((s, i) => {
+    const audio = String(s?.audio_texte || s?.audio || s?.text || "").trim();
+    const visual = String(s?.prompt_visuel || s?.visual || s?.prompt || "").trim();
+    if (!audio || !visual) throw new Error(`Seg ${i + 1} incomplet`);
+    return { id: i + 1, audio_texte: audio, prompt_visuel: visual };
   });
 }
 
-function generateFallbackScript(themeId, theme, segmentCount, episodeMeta) {
-  console.warn("⚠️ Génération d'un script de secours local (fallback) — l'API Delfa n'a pas répondu.");
-  const baseAudio = {
-    dessin_anime: [
-      "Pomme se réveille dans le verger magique, prête pour une nouvelle aventure.",
-      "Banane le sage remarque un petit mystère près du grand chêne lumineux.",
-      "Fraise la téméraire propose d'enquêter avec courage et bonne humeur.",
-      "Orange l'espiègle fait une blague, mais cache un petit secret.",
-      "Le groupe discute et comprend l'importance de l'écoute et de l'amitié.",
-      "Une rumeur se répand, mais Pomme choisit de vérifier les faits calmement.",
-      "Les amis résolvent le malentendu en parlant avec honnêteté.",
-      "Ils découvrent que la communication est la clé pour rester unis.",
-    ],
-    manga: [
-      "Mika entend un murmure d'encre qui s'efface dans les archives d'Orne.",
-      "Ilyan ajuste son gantelet mécanique et suit Mika dans les ruelles sombres.",
-      "Les lanternes suspendues clignotent alors qu'une page disparaît.",
-      "Un souvenir volé révèle l'ombre du collectionneur de mémoire.",
-      "Mika se souvient de la promesse faite aux Veilleurs d'Obsidienne.",
-      "La boussole d'obsidienne brisée vibre près du soleil noir.",
-      "Le groupe affronte un dilemme entre sauver la cité et leurs souvenirs.",
-      "La vérité éclate : l'encre elle-même choisit ce qui doit rester.",
-    ],
-    actualites: [
-      "Aujourd'hui, un fait international important attire l'attention du monde.",
-      "Les sources officielles confirment les premiers éléments vérifiables.",
-      "Les témoins sur place décrivent une situation en évolution rapide.",
-      "Les analystes expliquent le contexte et les enjeux derrière l'événement.",
-      "Les réactions internationales montrent des positions contrastées.",
-      "Les chiffres disponibles restent à confirmer par des sources indépendantes.",
-      "Ce qui est établi et ce qui reste incertain doit être clairement distingué.",
-      "Nous suivrons les développements et leurs implications dans les prochaines heures.",
-    ],
-    horreur: [
-      "Je me réveille et la maison semble anormalement silencieuse cette nuit.",
-      "Un bruit léger vient du couloir, comme un souffle qui hésite.",
-      "La lumière vacille, et mon cœur bat plus fort à chaque pas.",
-      "Je trouve une porte entrouverte que je pensais fermée à clé.",
-      "L'air devient froid et une présence semble m'observer dans l'ombre.",
-      "Je comprends que je ne suis pas seule et que quelque chose m'écoute.",
-      "Les souvenirs s'emmêlent alors que la peur monte lentement.",
-      "Je dois affronter ce qui m'attend avant que la nuit ne m'emporte.",
-    ],
+function randomPick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function generateViralFallbackScript(themeId, theme, segmentCount, episodeMeta, viralBeats) {
+  console.warn("⚠️ Fallback VIRAL local — API down, génération buzz à la main");
+  const hooks = VIRAL_HOOKS[themeId] || VIRAL_HOOKS.actualites;
+  const ctas = CTA_TEMPLATES[themeId] || CTA_TEMPLATES.actualites;
+
+  const base = {
+    dessin_anime: {
+      audios: [
+        () => randomPick(hooks).replace("{character}", "Pomme").replace("{lieu}", "grand chêne").replace("{theme}", "les secrets"),
+        "Banane le sage a vu quelque chose et il n'ose pas le dire tout haut.",
+        "Fraise la téméraire propose un plan fou pour découvrir la vérité aujourd'hui.",
+        "Orange fait une blague mais ses yeux trahissent qu'il cache un indice important.",
+        "Soudain, une rumeur explose : quelqu'un aurait trouvé la boîte interdite du verger !",
+        "Pomme confronte Orange calmement : la communication est la clé, même quand on a peur.",
+        "Le groupe découvre que la rumeur était à moitié vraie — et à moitié piège pour tester leur amitié.",
+        "Ils réalisent que vérifier avant de juger les rend plus forts ensemble, vraiment.",
+      ],
+      visuals: "colorful 3D cartoon, cute fruits, magical orchard, expressive, child-friendly, no text",
+    },
+    manga: {
+      audios: [
+        () => randomPick(hooks).replace("{number}", String(episodeMeta?.number || 2)),
+        "Mika serre sa boussole brisée, l'encre coule à l'envers dans l'air froid.",
+        "Ilyan bloque le couloir, son gantelet crépite : 'Tu ne passeras pas, Mika.'",
+        "Mais soudain, la page volée révèle une phrase que seule Mika peut entendre.",
+        "Le soleil noir pulse, une seconde de nuit totale — Orne retient son souffle.",
+        "Révélation : le collectionneur n'est pas l'ennemi, c'est un Veilleur déchu qui protège un secret.",
+        "Mika doit choisir : sauver la cité ou garder le dernier souvenir de sa mère.",
+        "Elle choisit les deux — et l'encre la choisit en retour, marquant sa main.",
+      ],
+      visuals: "original black-and-white manga, Mika white coat, obsidian compass, dark city Orne, ink effects, no text",
+    },
+    actualites: {
+      audios: [
+        () => randomPick(hooks).replace("{sujet}", "cette crise").replace("{chiffre}", "3,2 milliards").replace("{lieu}", "cette région"),
+        "Les sources officielles viennent de confirmer ce que peu osaient dire hier.",
+        "Voici le chiffre que tout le monde ignore : 78% des cas sont liés à une seule décision.",
+        "Mais attends, la partie la plus choquante arrive maintenant et personne n'en parle.",
+        "Sur place, les témoins décrivent une scène irréelle, entre peur et solidarité massive.",
+        "Pourquoi maintenant ? Parce que 3 facteurs se sont alignés en même temps, c'est inédit.",
+        "Ce que ça change pour toi : prix, sécurité, et une opportunité cachée que peu voient.",
+        "Et toi, tu penses qu'on va vers le pire ou vers un sursaut ? Dis-le en commentaire !",
+      ],
+      visuals: "documentary editorial illustration, realistic, news reportage, clear composition, professional, no text",
+    },
+    horreur: {
+      audios: [
+        () => randomPick(hooks),
+        "Je pose mon téléphone, j'écoute : un souffle léger vient de sous la porte fermée.",
+        "La lumière du couloir clignote deux fois, puis plus rien, juste mon cœur qui cogne.",
+        "J'ouvre tout doucement, la porte grince, et je vois que l'ombre a bougé toute seule.",
+        "Soudain, un murmure dit mon prénom exactement comme ma mère le disait avant.",
+        "Je recule, je veux crier mais aucun son ne sort, l'air est devenu glacé d'un coup.",
+        "Je comprends alors que ce n'est pas la maison qui est hantée, c'est moi depuis le début.",
+        "Et toi, tu aurais ouvert ou tu aurais fui ? Mets 💀 si tu veux la partie 2 avec l'enregistrement !",
+      ],
+      visuals: "dark cinematic horror, first-person, atmospheric shadows, tension, no gore, no text",
+    },
   };
 
-  const visuals = {
-    dessin_anime: "cute anthropomorphic fruits in magical orchard, colorful 3D cartoon, expressive faces, soft lighting, child-friendly, no text",
-    manga: "original black-and-white manga panel, Mika with short black hair and white coat, dark city Orne with lanterns, ink effects, no text, no speech bubbles",
-    actualites: "editorial documentary illustration, realistic news scene, clear composition, professional lighting, no text overlays",
-    horreur: "dark cinematic horror illustration, first-person view, atmospheric shadows, tension, no gore, no text",
-  };
-
-  const audios = baseAudio[themeId] || baseAudio.actualites;
-  const visualBase = visuals[themeId] || visuals.actualites;
-
-  const segments = [];
+  const pack = base[themeId] || base.actualites;
+  const segs = [];
   for (let i = 0; i < segmentCount; i++) {
-    const audio = audios[i % audios.length] + (segmentCount > audios.length ? ` (scène ${i + 1})` : "");
-    // On varie légèrement le visuel pour éviter la répétition exacte
-    const variation = `scene ${i + 1} of ${segmentCount}, sequential storytelling, ${i % 2 === 0 ? "wide shot" : "close-up"}${episodeMeta ? `, ${episodeMeta}` : ""}`;
-    segments.push({
-      id: i + 1,
-      audio_texte: audio,
-      prompt_visuel: `${visualBase}. ${variation}`,
-    });
+    const audioTemplate = pack.audios[i % pack.audios.length];
+    const audio = typeof audioTemplate === "function" ? audioTemplate() : audioTemplate;
+    let finalAudio = audio;
+    // Inject viral beat guidance
+    if (i === 0) {
+      finalAudio = audio; // hook
+    } else if (i === segmentCount - 1) {
+      const cta = randomPick(ctas).replace("{character}", "Pomme").replace("{number}", String(episodeMeta?.number || 1)).replace("{next}", String((episodeMeta?.number || 1) + 1));
+      finalAudio = cta;
+    } else if (i === Math.floor(segmentCount * 0.7)) {
+      finalAudio = audio + " Mais là, tout bascule.";
+    }
+
+    const beat = viralBeats[i] || "";
+    const visual = `${pack.visuals}. ${beat.split("[")[0].slice(0, 120)}. Scene ${i + 1}/${segmentCount}, ${i % 2 === 0 ? "wide" : "close-up"} storytelling.`;
+
+    segs.push({ id: i + 1, audio_texte: finalAudio, prompt_visuel: visual });
   }
-  return segments;
+  return segs;
 }
 
 async function callDelfaAPI(instructions, attempt) {
   const params = {
     model: "default",
-    message: `${instructions}\nTentative ${attempt}/${MAX_ATTEMPTS}: respecte impérativement le nombre exact de segments demandés. Réponds uniquement en JSON.`,
+    message: `${instructions}\nTentative ${attempt}/${MAX_ATTEMPTS}: respecte EXACT nombre segments + structure virale. JSON only.`,
   };
-
-  // Essai en GET d'abord (comportement historique)
   try {
-    console.log(`🔗 GET ${DELFA_API_URL} (tentative ${attempt})`);
-    const response = await axios.get(DELFA_API_URL, {
-      params,
-      timeout: REQUEST_TIMEOUT,
-      headers: { "Accept": "application/json" },
-      validateStatus: (s) => s < 500, // 4xx on laisse passer pour parser l'erreur
-    });
-    if (response.status >= 400) {
-      throw new Error(`API GET a répondu ${response.status}: ${JSON.stringify(response.data).slice(0, 500)}`);
-    }
-    return response.data;
+    console.log(`🔗 GET Delfa tentative ${attempt}`);
+    const res = await axios.get(DELFA_API_URL, { params, timeout: REQUEST_TIMEOUT, headers: { Accept: "application/json" }, validateStatus: (s) => s < 500 });
+    if (res.status >= 400) throw new Error(`GET ${res.status}`);
+    return res.data;
   } catch (err) {
     if (attempt > 2) {
-      // Après 2 échecs GET, on tente POST (certains déploiements Vercel préfèrent POST pour gros payloads)
-      try {
-        console.log(`🔗 POST ${DELFA_API_URL} (fallback tentative ${attempt})`);
-        const response = await axios.post(
-          DELFA_API_URL,
-          { model: "default", message: params.message },
-          { timeout: REQUEST_TIMEOUT, headers: { "Content-Type": "application/json", Accept: "application/json" }, validateStatus: (s) => s < 500 }
-        );
-        if (response.status >= 400) {
-          throw new Error(`API POST a répondu ${response.status}: ${JSON.stringify(response.data).slice(0, 500)}`);
-        }
-        return response.data;
-      } catch (postErr) {
-        // On propage l'erreur GET originale si POST échoue aussi, pour garder le contexte
-        throw err;
-      }
+      console.log(`🔗 POST Delfa fallback ${attempt}`);
+      const res = await axios.post(DELFA_API_URL, { model: "default", message: params.message }, { timeout: REQUEST_TIMEOUT, headers: { "Content-Type": "application/json" }, validateStatus: (s) => s < 500 });
+      if (res.status >= 400) throw new Error(`POST ${res.status}`);
+      return res.data;
     }
     throw err;
   }
@@ -208,80 +193,97 @@ async function main() {
   const mangaEpisode = isManga ? getMangaEpisode() : null;
   const cartoonEpisode = isCartoon ? getCartoonEpisode() : null;
 
-  let actGuidance = "";
-  let fallbackMeta = "";
+  const episodeMeta = mangaEpisode || cartoonEpisode || {};
+  const viralBeats = getViralBeats(themeId, segmentCount, episodeMeta);
+
+  let sagaContext = "";
   if (isManga) {
-    actGuidance = `- Ceci est le chapitre ${mangaEpisode.number}, publié le ${mangaEpisode.date}, de la série originale « ${mangaEpisode.title} ». Arc actuel : « ${mangaEpisode.arc.name} » — ${mangaEpisode.arc.goal}\n- Bible immuable : ${mangaEpisode.visualBible}\n- Raconte un épisode complet avec son propre mini-conflit, une avancée nette vers l'objectif de l'arc et une dernière image qui donne envie de voir le chapitre suivant. Ne résume jamais toute la saga en un seul épisode.\n- Répartis les ${segmentCount} scènes: rappel organique, enjeu du chapitre, obstacles, révélation ou confrontation, retombée et promesse du prochain chapitre.\n`;
-    fallbackMeta = `Chapitre ${mangaEpisode.number}, arc ${mangaEpisode.arc.name}`;
+    sagaContext = `SÉRIE: ${mangaEpisode.title} Chapitre ${mangaEpisode.number} du ${mangaEpisode.date}. Arc: ${mangaEpisode.arc.name} - ${mangaEpisode.arc.goal}. Bible: ${mangaEpisode.visualBible}.`;
   } else if (isCartoon) {
-    const structure = cartoonEpisode.episodeStructure;
-    actGuidance = `- Ceci est l'épisode ${cartoonEpisode.number}, publié le ${cartoonEpisode.date}, de la série « ${cartoonEpisode.title} ». Arc actuel : « ${cartoonEpisode.arc.name} » — ${cartoonEpisode.arc.goal}\n- Thèmes de l'arc : ${cartoonEpisode.arc.themes.join(", ")}\n- Bible visuelle : ${cartoonEpisode.visualBible}\n- Structure de l'épisode : ${structure.opening} → ${structure.setup} → ${structure.conflict} → ${structure.resolution} → ${structure.lesson} → ${structure.teaser}\n- Raconte une aventure quotidienne avec des fruits qui parlent. Inclus un petit mystère, une rumeur ou un malentendu qui se résout toujours positivement par la communication et l'amitié.\n- Répartis les ${segmentCount} scènes selon la structure ci-dessus. Termine par une leçon de vie simple et positive.\n`;
-    fallbackMeta = `Épisode ${cartoonEpisode.number}, arc ${cartoonEpisode.arc.name}`;
+    sagaContext = `SÉRIE: ${cartoonEpisode.title} Épisode ${cartoonEpisode.number} du ${cartoonEpisode.date}. Arc: ${cartoonEpisode.arc.name} - ${cartoonEpisode.arc.goal}. Thèmes: ${cartoonEpisode.arc.themes.join(", ")}. Bible: ${cartoonEpisode.visualBible}. Structure: ${Object.values(cartoonEpisode.episodeStructure).join(" → ")}.`;
   }
 
-  const instructions = `Tu es scénariste pour une vidéo verticale française animée.
-Format: ${theme.label}.
-Sujet: ${theme.subject}.
+  const viralGuidance = viralBeats.map((b, i) => `${i + 1}. ${b}`).join("\n");
 
-${theme.style}
+  const instructions = `Tu es scénariste VIRAL pour vidéos verticales 9:16 qui doivent BUZZER sur YouTube Shorts / TikTok français.
 
-Règles non négociables:
-- Génère exactement ${segmentCount} segments strictement chronologiques. Il s'agit d'un seul récit cohérent.
-- Chaque audio_texte fait 10 à 22 mots, naturel à l'oral, en français.
-- Chaque prompt_visuel est en anglais, décrit l'action visible, le cadrage et les personnages de cette scène. Ne mets ni texte lisible, ni sous-titres, ni logo dans l'image.
-- Préserve les mêmes personnages, lieux et objets importants tout au long de l'histoire.
-${actGuidance}
-Réponds UNIQUEMENT avec un JSON valide, sans markdown:
+FORMAT: ${theme.label}
+SUJET: ${theme.subject}
+STYLE DE BASE: ${theme.style}
+
+${sagaContext}
+
+🔥 STRUCTURE VIRALE OBLIGATOIRE POUR ${segmentCount} SEGMENTS (Buzz garanti) :
+${viralGuidance}
+
+RÈGLES VIRALES NON NÉGOCIABLES :
+- Segment 1 = HOOK scroll-stopper ultra court (8-12 mots), curiosity gap, question ou chiffre choc
+- Segments 2-${Math.floor(segmentCount * 0.3)} = Setup rapide + promesse forte de ce que le spectateur va découvrir
+- Segments ${Math.floor(segmentCount * 0.3) + 1}-${Math.floor(segmentCount * 0.7)} = Escalade avec pattern interrupts visuels (change de cadrage chaque segment), mini open-loops
+- Segment ~${Math.floor(segmentCount * 0.7) + 1} = TWIST majeur à 70% qui retourne tout (le moment le plus partageable)
+- Segments ${Math.floor(segmentCount * 0.8)}-${segmentCount - 1} = Payoff + Leçon/insight mémorable + teaser suite
+- Dernier segment = CTA VIRAL qui déclenche commentaires : question ouverte "Et toi ?" + "Abonne-toi pour partie 2 / suite demain" + emoji
+- Chaque audio_texte 10-18 mots, oral, français, avec mot émotion fort
+- Chaque prompt_visuel en anglais, action + cadrage + détail rétention, no text, no watermark
+- Inclus mot-clés viraux : secret, mystère, révélation, jamais, choquant, incroyable, personne ne, tu vas
+- Préserve mêmes personnages/objets, mais varie cadrage wide/close-up pour rétention
+
+Exemples hook ${themeId}: ${VIRAL_HOOKS[themeId].slice(0, 2).join(" | ")}
+
+Réponds UNIQUEMENT JSON valide:
 {"segments":[{"id":1,"audio_texte":"...","prompt_visuel":"..."}]}`;
 
-  console.log(`🤖 [${themeId.toUpperCase()}] Génération de ${segmentCount} segments (${theme.label})...`);
+  console.log(`🚀 [${themeId.toUpperCase()} VIRAL] ${segmentCount} segments — Buzz structure activée...`);
   let script;
-  let lastError;
+  let lastErr;
+  let bestScore = 0;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const rawData = await callDelfaAPI(instructions, attempt);
-      const parsed = normalizeResponse(rawData);
-      script = validateSegments(parsed.segments, segmentCount);
-      console.log(`✅ Script valide obtenu à la tentative ${attempt}`);
-      break;
-    } catch (error) {
-      lastError = error;
-      console.warn(`⚠️ Script invalide ou API indisponible (essai ${attempt}/${MAX_ATTEMPTS}): ${error.message}`);
-      if (attempt < MAX_ATTEMPTS) {
-        const backoff = attempt * 2500 + Math.random() * 1000;
-        await new Promise((resolve) => setTimeout(resolve, backoff));
+      const raw = await callDelfaAPI(instructions, attempt);
+      const parsed = normalizeResponse(raw);
+      const validated = validateSegments(parsed.segments, segmentCount);
+      const { score, reasons, isViral } = scoreVirality(validated, themeId);
+      console.log(`   📊 Score viral tentative ${attempt}: ${score}/100 — ${reasons.join(", ")}`);
+      if (score > bestScore) {
+        bestScore = score;
+        script = validated;
       }
+      if (isViral) {
+        console.log(`   🔥 Viral validé (${score}) à tentative ${attempt}`);
+        script = validated;
+        break;
+      } else if (attempt < MAX_ATTEMPTS) {
+        console.warn(`   ⚠️ Score viral ${score} <70, on retente avec plus de hooks...`);
+      }
+    } catch (e) {
+      lastErr = e;
+      console.warn(`   ⚠️ Tentative ${attempt}/${MAX_ATTEMPTS} échouée: ${e.message}`);
+      if (attempt < MAX_ATTEMPTS) await new Promise((r) => setTimeout(r, attempt * 2000 + Math.random() * 1000));
     }
   }
 
-  // Fallback local si l'API n'a jamais répondu correctement
   let usedFallback = false;
-  if (!script) {
-    console.warn(`⚠️ Toutes les tentatives API ont échoué (${lastError?.message}). Passage en mode fallback local.`);
-    script = generateFallbackScript(themeId, theme, segmentCount, fallbackMeta);
+  let fallbackMeta = null;
+  if (isManga) fallbackMeta = mangaEpisode;
+  else if (isCartoon) fallbackMeta = cartoonEpisode;
+
+  if (!script || bestScore < 50) {
+    console.warn(`⚠️ Score viral final ${bestScore} trop bas ou échec API (${lastErr?.message}), fallback VIRAL local`);
+    script = generateViralFallbackScript(themeId, theme, segmentCount, fallbackMeta, viralBeats);
     usedFallback = true;
   }
 
+  // Score final
+  const finalScore = scoreVirality(script, themeId);
+  console.log(`🏆 Score viral final: ${finalScore.score}/100 — ${finalScore.isViral ? "VIRAL" : "corrigeable"} — ${finalScore.reasons.join(" | ")}`);
+
   const episodeMetadata = {};
   if (mangaEpisode) {
-    episodeMetadata.manga_episode = {
-      number: mangaEpisode.number,
-      date: mangaEpisode.date,
-      series_title: mangaEpisode.title,
-      arc: mangaEpisode.arc.name,
-      arc_goal: mangaEpisode.arc.goal,
-    };
+    episodeMetadata.manga_episode = { number: mangaEpisode.number, date: mangaEpisode.date, series_title: mangaEpisode.title, arc: mangaEpisode.arc.name, arc_goal: mangaEpisode.arc.goal };
   }
   if (cartoonEpisode) {
-    episodeMetadata.cartoon_episode = {
-      number: cartoonEpisode.number,
-      date: cartoonEpisode.date,
-      series_title: cartoonEpisode.title,
-      arc: cartoonEpisode.arc.name,
-      arc_goal: cartoonEpisode.arc.goal,
-      themes: cartoonEpisode.arc.themes,
-    };
+    episodeMetadata.cartoon_episode = { number: cartoonEpisode.number, date: cartoonEpisode.date, series_title: cartoonEpisode.title, arc: cartoonEpisode.arc.name, arc_goal: cartoonEpisode.arc.goal, themes: cartoonEpisode.arc.themes };
   }
 
   const output = {
@@ -290,18 +292,22 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown:
     visual_mode: theme.visualMode,
     visual_style: theme.visualStyle,
     segment_count: segmentCount,
+    viral_score: finalScore.score,
+    viral_reasons: finalScore.reasons,
+    viral_structure: viralBeats,
     ...episodeMetadata,
     script,
     generated_at: new Date().toISOString(),
     fallback_used: usedFallback,
-    generator: usedFallback ? "local-fallback" : "delfa-api",
+    generator: usedFallback ? "viral-local-fallback-buzz" : "delfa-api-viral",
   };
+
   fs.mkdirSync("./tmp_data", { recursive: true });
   fs.writeFileSync("./tmp_data/script_data.json", JSON.stringify(output, null, 2), "utf-8");
-  console.log(`✅ Script généré: ${script.length} scènes — ${theme.label}${usedFallback ? " (fallback local)" : ""}.`);
+  console.log(`✅ Script VIRAL généré: ${script.length} scènes — ${theme.label} — score ${finalScore.score} ${usedFallback ? "(fallback buzz)" : ""}`);
 }
 
-main().catch((error) => {
-  console.error("❌ Erreur de génération du script:", error.message);
+main().catch((err) => {
+  console.error("❌ Erreur fatale viral:", err.message);
   process.exit(1);
 });
