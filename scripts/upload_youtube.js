@@ -69,11 +69,16 @@ ${metadata.hashtags}
 
 Généré automatiquement par Vid IA Pipeline 🤖`;
 
-  // 5. Catégories YouTube par thème
+  // 5. Catégories YouTube par thème (nouveaux formats + compat anciens)
   const categoryIds = {
-    ia: "28",      // Science & Technology
-    monde: "25",   // News & Politics
-    horreur: "24", // Entertainment
+    dessin_anime: "1",  // Film & Animation
+    manga: "1",         // Film & Animation
+    actualites: "25",   // News & Politics
+    horreur: "24",      // Entertainment
+    // rétro-compatibilité
+    ia: "28",
+    monde: "25",
+    reportage: "25",
   };
   const categoryId = categoryIds[metadata.theme] || "22"; // 22 = People & Blogs
 

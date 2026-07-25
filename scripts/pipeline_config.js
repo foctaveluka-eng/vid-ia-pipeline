@@ -45,10 +45,11 @@ function boundedInteger(value, fallback, min, max) {
 }
 
 function getThemeFromEnvironment() {
-  const forced = (process.env.PIPELINE_THEME || "").trim().toLowerCase();
+  const raw = (process.env.PIPELINE_THEME || "").trim().toLowerCase();
+  const forced = raw === "auto" ? "" : raw;
   if (forced) {
     if (!THEMES[forced]) {
-      throw new Error(`PIPELINE_THEME invalide: "${forced}". Valeurs autorisées: ${Object.keys(THEMES).join(", ")}.`);
+      throw new Error(`PIPELINE_THEME invalide: "${forced}". Valeurs autorisées: ${Object.keys(THEMES).join(", ")} ou "auto".`);
     }
     return forced;
   }
