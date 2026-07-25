@@ -19,8 +19,6 @@ const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
-const { characterPrompt } = require("./character_engine");
-const { continuityPrompt } = require("./continuity_engine");
 
 const IMAGE_API_URL = process.env.IMAGE_API_URL || "https://gem-tw6a.onrender.com/generate";
 const VIDEO_API_URL = process.env.VIDEO_API_URL || IMAGE_API_URL; // même endpoint peut gérer vidéo si format mp4
@@ -67,9 +65,7 @@ function unifiedPrompt(scriptData, segment) {
       ? "Clear foreground, middle ground and background for camera movement, no speech bubbles, no text."
       : "Subtle cinematic camera movement with clear foreground and background, no text.";
   // Prompt pro : décrit l'image ET exige que la phrase soit audible dans la vidéo
-  const characterLock = segment.character_lock || characterPrompt(segment, scriptData.character_bible || []);
-  const continuityLock = continuityPrompt(segment);
-  return `${style}. Scene ${segment.id}: ${segment.prompt_visuel}. ${characterLock} ${continuityLock} ${movement} The spoken narration in French must be clearly audible and synchronized in the video: "${segment.audio_texte}". Vertical 9:16 animated video, French voiceover included, no subtitles, no watermark, high quality, smooth motion.`;
+  return `${style}. Scene ${segment.id}: ${segment.prompt_visuel}. ${movement} The spoken narration in French must be clearly audible and synchronized in the video: "${segment.audio_texte}". Vertical 9:16 animated video, French voiceover included, no subtitles, no watermark, high quality, smooth motion.`;
 }
 
 function imagePromptOnly(scriptData, segment) {
@@ -77,7 +73,7 @@ function imagePromptOnly(scriptData, segment) {
     scriptData.visual_mode === "manga_motion"
       ? "Compose for camera movement: clear foreground, middle ground and background; leave no speech bubbles."
       : "Compose for subtle cinematic camera movement with clear foreground and background.";
-  return `${scriptData.visual_style || "cinematic animated illustration"}. Scene: ${segment.prompt_visuel}. ${segment.character_lock || ""} ${continuityPrompt(segment)} ${movement}`;
+  return `${scriptData.visual_style || "cinematic animated illustration"}. Scene: ${segment.prompt_visuel}. ${movement}`;
 }
 
 // ─── Placeholder image ───────────────────────────────────────────────────────
@@ -181,20 +177,14 @@ function generateClipFromImageAudio(ffmpegBin, imagePath, audioPath, clipPath, c
 }
 
 // ─── Tentative génération vidéo directe via API ─────────────────────────────
-async function tryGenerateVideoViaAPI(prompt, outputPath, retries = 2, referenceImagePath = null) {
-  // Les API image-to-video n'ont pas toutes le même contrat. On fournit les
-  // deux noms usuels sans empêcher le fallback si le fournisseur les ignore.
-  let referenceImage = null;
-  try {
-    if (referenceImagePath && fs.existsSync(referenceImagePath)) referenceImage = fs.readFileSync(referenceImagePath).toString("base64");
-  } catch {}
+async function tryGenerateVideoViaAPI(prompt, outputPath, retries = 2) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       // Essai 1 : format mp4 avec audio
       const payloads = [
-        { prompt, ratio: "9:16", format: "mp4", duration: 5, audio: true, with_audio: true, image: referenceImage, reference_image: referenceImage },
-        { prompt, ratio: "9:16", format: "mp4", image: referenceImage, reference_image: referenceImage },
-        { prompt, ratio: "9:16", format: "mov", image: referenceImage, reference_image: referenceImage },
+        { prompt, ratio: "9:16", format: "mp4", duration: 5, audio: true, with_audio: true },
+        { prompt, ratio: "9:16", format: "mp4" },
+        { prompt, ratio: "9:16", format: "mov" },
       ];
       for (const payload of payloads) {
         try {
@@ -291,36 +281,36 @@ async function main() {
           return;
         }
 
-        // 1. Image canonique d'abord. Elle est l'entrée image-to-video et le
-        // raccord visuel du clip suivant (mêmes personnages, tenue et décor).
-        let imagePath = null;
-        const okImg = await tryGenerateImageViaAPI(imagePromptOnly(scriptData, segment), imgTmpPath, 2);
-        if (okImg) imagePath = imgTmpPath;
-        else if (generatePlaceholderImage(imgTmpPath, scriptData.theme, ffmpegBin)) {
-          imagePath = imgTmpPath;
-          console.log(`🟡 Placeholder image pour clip ${num}`);
-        }
-        if (!imagePath || !fs.existsSync(imagePath)) {
-          console.error(`❌ Impossible d'obtenir image de référence pour clip ${num}.`);
-          return;
-        }
+        // 1. Tente génération vidéo directe avec audio intégré
+        console.log(`🔄 Clip ${num} — prompt unifié avec parole...`);
+        const videoAttempt = await tryGenerateVideoViaAPI(unifiedPrompt(scriptData, segment), clipPath, 2);
 
-        // 2. Image-to-video : l'image canonique est envoyée au fournisseur avec
-        // les verrous personnages/continuité. Le fallback réutilise la même image.
-        console.log(`🔄 Clip ${num} — image de référence → vidéo avec parole...`);
-        const videoAttempt = await tryGenerateVideoViaAPI(unifiedPrompt(scriptData, segment), clipPath, 2, imagePath);
         if (videoAttempt.success) {
-          console.log(`✅ Clip ${num} généré via image-to-video (avec audio).`);
+          console.log(`✅ Clip ${num} généré via API vidéo directe (avec audio).`);
           generatedClips.push(clipPath);
           return;
         }
+
+        // 2. Fallback : l'API a renvoyé une image, ou a échoué → on génère image + audio + assemble localement
+        let imagePath = null;
         if (videoAttempt.isImage && videoAttempt.tmpImagePath && fs.existsSync(videoAttempt.tmpImagePath)) {
+          // Utilise l'image retournée par l'API vidéo
           fs.renameSync(videoAttempt.tmpImagePath, imgTmpPath);
           imagePath = imgTmpPath;
-          console.log(`🟡 API vidéo a retourné une image, assemblage local.`);
+          console.log(`🟡 Clip ${num} — API a retourné image, passage assemblage local image+audio.`);
+        } else {
+          // Génère image via API image
+          const okImg = await tryGenerateImageViaAPI(imagePromptOnly(scriptData, segment), imgTmpPath, 2);
+          if (okImg) {
+            imagePath = imgTmpPath;
+          } else {
+            // Placeholder
+            if (generatePlaceholderImage(imgTmpPath, scriptData.theme, ffmpegBin)) {
+              imagePath = imgTmpPath;
+              console.log(`🟡 Placeholder image pour clip ${num}`);
+            }
+          }
         }
-
-        // 3. Fallback : image canonique + audio assemblés localement.
 
         if (!imagePath || !fs.existsSync(imagePath)) {
           console.error(`❌ Impossible d'obtenir image pour clip ${num}, clip ignoré.`);
