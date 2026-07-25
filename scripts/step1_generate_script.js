@@ -17,6 +17,8 @@ const {
   scoreVirality,
   generateViralPromptAddendum,
 } = require("./viral_engine");
+const { getCharacterBible, enrichSegmentsWithCharacters } = require("./character_engine");
+const { enrichSegmentsWithContinuity, validateContinuity } = require("./continuity_engine");
 
 const DELFA_API_URL = process.env.DELFA_API_URL || "https://delfaapiai.vercel.app/ai/copilot";
 const MAX_ATTEMPTS = 5;
@@ -274,6 +276,12 @@ Réponds UNIQUEMENT JSON valide:
     usedFallback = true;
   }
 
+  // Verrouille les personnages et l'état visuel avant de transmettre le script au moteur vidéo.
+  const characterBible = getCharacterBible(themeId, episodeMeta.series);
+  script = enrichSegmentsWithContinuity(enrichSegmentsWithCharacters(script, characterBible));
+  const continuity = validateContinuity(script);
+  if (!continuity.valid) throw new Error(`Plan de continuité invalide: ${continuity.issues.join("; ")}`);
+
   // Score final
   const finalScore = scoreVirality(script, themeId);
   console.log(`🏆 Score viral final: ${finalScore.score}/100 — ${finalScore.isViral ? "VIRAL" : "corrigeable"} — ${finalScore.reasons.join(" | ")}`);
@@ -295,6 +303,8 @@ Réponds UNIQUEMENT JSON valide:
     viral_score: finalScore.score,
     viral_reasons: finalScore.reasons,
     viral_structure: viralBeats,
+    character_bible: characterBible,
+    continuity_validated: continuity.valid,
     ...episodeMetadata,
     script,
     generated_at: new Date().toISOString(),

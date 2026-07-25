@@ -20,3 +20,6 @@ desktop.ini
 .idea/
 *.swp
 *.swo
+
+# ── Démonstrations générées localement (vidéos binaires) ─────────────────────
+demo_output/

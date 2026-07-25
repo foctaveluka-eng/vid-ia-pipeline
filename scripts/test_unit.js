@@ -17,6 +17,8 @@ const {
   getMangaEpisode,
   getCartoonEpisode,
 } = require("./pipeline_config");
+const { getCharacterBible, enrichSegmentsWithCharacters } = require("./character_engine");
+const { enrichSegmentsWithContinuity, validateContinuity } = require("./continuity_engine");
 
 let passed = 0;
 let failed = 0;
@@ -133,8 +135,19 @@ assert(cartoonJson.characters && cartoonJson.characters.length >= 3, "Au moins 3
 assert(cartoonJson.episode_structure && cartoonJson.episode_structure.resolution, "Structure d'épisode avec résolution positive");
 assert(cartoonJson.visual_bible.length > 50, "Bible visuelle cartoon détaillée");
 
+// ─── 8. Verrous personnages et continuité ───────────────────────────────────
+console.log("\n📋 TEST 8 : Continuité clips et personnages");
+const demoSegments = enrichSegmentsWithContinuity(enrichSegmentsWithCharacters([
+  { id: 1, audio_texte: "Pomme trouve un secret", prompt_visuel: "Pomme in orchard" },
+  { id: 2, audio_texte: "Orange arrive", prompt_visuel: "Orange joins Pomme" },
+], getCharacterBible("dessin_anime")));
+const continuityCheck = validateContinuity(demoSegments);
+assert(continuityCheck.valid, "Plan de continuité 5–10 secondes valide");
+assert(demoSegments[0].character_ids.includes("pomme"), "Pomme reçoit un verrou de personnage");
+assert(demoSegments[1].continuity.reference_image === "images/reference_001.jpg", "Scène suivante référence l'image précédente");
+
 // ─── 8. Cohérence des créneaux horaires ──────────────────────────────────────
-console.log("\n📋 TEST 8 : Sélection automatique du thème par l'heure");
+console.log("\n📋 TEST 9 : Sélection automatique du thème par l'heure");
 
 // Sauvegarder PIPELINE_THEME et le supprimer pour tester la sélection horaire
 delete process.env.PIPELINE_THEME;
