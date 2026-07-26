@@ -62,10 +62,25 @@ function unifiedPrompt(scriptData, segment) {
   const style = scriptData.visual_style || "cinematic animated illustration";
   const movement =
     scriptData.visual_mode === "manga_motion"
-      ? "Professional full-color modern anime style, dynamic camera work, characters visibly speaking with accurate lip movements and mouth animation synchronized to the voice, natural conversational body language and facial expressions, no speech bubbles, no text."
+      ? "Professional full-color modern anime style (Solo Leveling / Jujutsu Kaisen), dynamic camera work, multiple characters in frame, accurate lip movements and mouth animation synchronized to the voice, natural conversational body language and facial expressions, detailed location background, no speech bubbles, no text."
       : "Subtle cinematic camera movement with clear foreground and background, no text.";
-  // Prompt pro : la vidéo générée DOIT contenir l'audio français intégré directement + lip-sync des personnages
-  return `${style}. Scene ${segment.id}: ${segment.prompt_visuel}. ${movement} CRITICAL REQUIREMENT: This video file must contain the exact spoken French narration EMBEDDED DIRECTLY as audio track. The main characters must visibly speak the lines with perfect lip synchronization and mouth movements while the French voice plays. The voiceover is part of the generated MP4. Natural face-to-face manga dialogue scene. Vertical 9:16 professional anime video, French voiceover directly embedded, no separate audio, no subtitles, no watermark, high quality, fluid animation.`;
+  
+  // Prompt structuré pour que l'API génère DIRECTEMENT la vidéo + audio intégré
+  // Format attendu : [Lieu] + [Dialogue exact] + [Expressions par personnage] + [Audio intégré + lip-sync]
+  return `${style}. Scene ${segment.id}: ${segment.prompt_visuel}. ${movement} 
+
+STRUCTURED SCENE PROMPT:
+- Location: detailed anime background (Orne streets, obsidian towers, glowing lanterns, floating ink particles)
+- Dialogue: the exact French line spoken naturally by the character(s)
+- Character expressions: detailed facial expressions and reactions for each character (Mika determined eyes, Ilyan intense gaze, Kael surprised, Elara authoritative, etc.)
+- Lip sync: characters' mouths move precisely with the spoken French words
+
+CRITICAL REQUIREMENT: Generate a single MP4 video file that contains:
+1. The full visual scene (location + characters with expressions + lip movements)
+2. The exact French narration audio EMBEDDED DIRECTLY in the video file
+3. Perfect lip synchronization so characters visibly speak the dialogue
+
+The generated video must play with audio and animated speaking characters. No separate audio track. Natural manga conversation scene. Vertical 9:16 professional anime video, French voiceover directly embedded, no subtitles, no watermark, high quality, fluid animation.`;
 }
 
 function imagePromptOnly(scriptData, segment) {

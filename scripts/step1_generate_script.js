@@ -101,8 +101,8 @@ function generateViralFallbackScript(themeId, theme, segmentCount, episodeMeta, 
     manga: {
       audios: [
         () => randomPick(hooks).replace("{number}", String(episodeMeta?.number || 2)),
-        "Mika serre sa boussole brisée, l'encre coule à l'envers dans l'air froid.",
-        "Ilyan bloque le couloir, son gantelet crépite : 'Tu ne passeras pas, Mika.'",
+        "Mika, l'encre s'efface déjà, on n'a plus beaucoup de temps.",
+        "Ilyan, on doit protéger la cité ensemble.",
         "Mais soudain, la page volée révèle une phrase que seule Mika peut entendre.",
         "Le soleil noir pulse, une seconde de nuit totale — Orne retient son souffle.",
         "Révélation : le collectionneur n'est pas l'ennemi, c'est un Veilleur déchu qui protège un secret.",
@@ -224,7 +224,9 @@ RÈGLES VIRALES NON NÉGOCIABLES :
 - Segments ${Math.floor(segmentCount * 0.8)}-${segmentCount - 1} = Payoff + Leçon/insight mémorable + teaser suite
 - Dernier segment = CTA VIRAL qui déclenche commentaires : question ouverte "Et toi ?" + "Abonne-toi pour partie 2 / suite demain" + emoji
 - Chaque audio_texte = **dialogue naturel en français** comme dans un vrai manga (conversation face-à-face, sans "le personnage dit", juste les répliques naturelles et fluides).
-- Chaque prompt_visuel en anglais, **strictement dialogue-driven**: describe characters having a natural face-to-face conversation, lip movement, gestures, reactions. NO landscape descriptions, NO emotion lists, NO static scenery. Professional modern anime video style.
+- Chaque prompt_visuel en anglais, **structuré et complet** (format attendu par l'API vidéo) : 
+  "In [detailed anime location: Orne streets with glowing lanterns, obsidian towers, floating ink particles], [Character1] with [specific expression] says: \"[exact French dialogue]\". [Character2] reacts with [expression]. Multiple characters visible. Lip movements visible."
+  Professional modern anime video style. Include location + exact dialogue + expressions for each character.
 - Inclus mot-clés viraux : secret, mystère, révélation, jamais, choquant, incroyable, personne ne, tu vas
 - Préserve mêmes personnages/objets, mais varie cadrage wide/close-up pour rétention
 
