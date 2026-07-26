@@ -109,7 +109,7 @@ function generateViralFallbackScript(themeId, theme, segmentCount, episodeMeta, 
         "Mika doit choisir : sauver la cité ou garder le dernier souvenir de sa mère.",
         "Elle choisit les deux — et l'encre la choisit en retour, marquant sa main.",
       ],
-      visuals: "original black-and-white manga, Mika white coat, obsidian compass, dark city Orne, ink effects, no text",
+      visuals: "professional full-color modern anime style, two characters having a natural face-to-face conversation, lip movements, expressive gestures, consistent Mika and Ilyan designs, smooth animation, no text",
     },
     actualites: {
       audios: [
@@ -223,8 +223,8 @@ RÈGLES VIRALES NON NÉGOCIABLES :
 - Segment ~${Math.floor(segmentCount * 0.7) + 1} = TWIST majeur à 70% qui retourne tout (le moment le plus partageable)
 - Segments ${Math.floor(segmentCount * 0.8)}-${segmentCount - 1} = Payoff + Leçon/insight mémorable + teaser suite
 - Dernier segment = CTA VIRAL qui déclenche commentaires : question ouverte "Et toi ?" + "Abonne-toi pour partie 2 / suite demain" + emoji
-- Chaque audio_texte 10-18 mots, oral, français, avec mot émotion fort
-- Chaque prompt_visuel en anglais, action + cadrage + détail rétention, no text, no watermark
+- Chaque audio_texte = **dialogue naturel en français** comme dans un vrai manga (conversation face-à-face, sans "le personnage dit", juste les répliques naturelles et fluides).
+- Chaque prompt_visuel en anglais, **strictement dialogue-driven**: describe characters having a natural face-to-face conversation, lip movement, gestures, reactions. NO landscape descriptions, NO emotion lists, NO static scenery. Professional modern anime video style.
 - Inclus mot-clés viraux : secret, mystère, révélation, jamais, choquant, incroyable, personne ne, tu vas
 - Préserve mêmes personnages/objets, mais varie cadrage wide/close-up pour rétention
 

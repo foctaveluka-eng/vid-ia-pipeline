@@ -62,16 +62,16 @@ function unifiedPrompt(scriptData, segment) {
   const style = scriptData.visual_style || "cinematic animated illustration";
   const movement =
     scriptData.visual_mode === "manga_motion"
-      ? "Clear foreground, middle ground and background for camera movement, no speech bubbles, no text."
+      ? "Professional full-color modern anime style, dynamic camera work, characters visibly speaking with accurate lip movements and mouth animation synchronized to the voice, natural conversational body language and facial expressions, no speech bubbles, no text."
       : "Subtle cinematic camera movement with clear foreground and background, no text.";
-  // Prompt pro : décrit l'image ET exige que la phrase soit audible dans la vidéo
-  return `${style}. Scene ${segment.id}: ${segment.prompt_visuel}. ${movement} The spoken narration in French must be clearly audible and synchronized in the video: "${segment.audio_texte}". Vertical 9:16 animated video, French voiceover included, no subtitles, no watermark, high quality, smooth motion.`;
+  // Prompt pro : la vidéo générée DOIT contenir l'audio français intégré directement + lip-sync des personnages
+  return `${style}. Scene ${segment.id}: ${segment.prompt_visuel}. ${movement} CRITICAL REQUIREMENT: This video file must contain the exact spoken French narration EMBEDDED DIRECTLY as audio track. The main characters must visibly speak the lines with perfect lip synchronization and mouth movements while the French voice plays. The voiceover is part of the generated MP4. Natural face-to-face manga dialogue scene. Vertical 9:16 professional anime video, French voiceover directly embedded, no separate audio, no subtitles, no watermark, high quality, fluid animation.`;
 }
 
 function imagePromptOnly(scriptData, segment) {
   const movement =
     scriptData.visual_mode === "manga_motion"
-      ? "Compose for camera movement: clear foreground, middle ground and background; leave no speech bubbles."
+      ? "Professional full-color modern anime style, characters having natural face-to-face dialogue, visible lip movements and mouth animation, expressive gestures, consistent character designs, no speech bubbles, no text."
       : "Compose for subtle cinematic camera movement with clear foreground and background.";
   return `${scriptData.visual_style || "cinematic animated illustration"}. Scene: ${segment.prompt_visuel}. ${movement}`;
 }
@@ -135,6 +135,7 @@ function generateSilentAudio(audioPath, durationSec, ffmpegBin) {
 }
 
 // ─── Création clip à partir d'image + audio (Ken Burns + fade) ──────────────
+// Fallback amélioré : simule une vraie scène de dialogue manga
 function generateClipFromImageAudio(ffmpegBin, imagePath, audioPath, clipPath, clipIndex) {
   // Durée audio via ffprobe si dispo, sinon estimation
   let duration = 3.0;
@@ -151,10 +152,12 @@ function generateClipFromImageAudio(ffmpegBin, imagePath, audioPath, clipPath, c
   } catch {}
   const clipDuration = duration + 0.3;
   const frames = Math.max(1, Math.ceil(clipDuration * 30));
+  
+  // Mouvement plus conversationnel pour manga (zoom lent sur visages)
   const move =
     clipIndex % 2 === 0
-      ? `zoompan=z='min(zoom+0.0008,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=1080x1920:fps=30`
-      : `zoompan=z='min(zoom+0.0008,1.12)':x='iw-iw/zoom':y='ih/2-(ih/zoom/2)':d=${frames}:s=1080x1920:fps=30`;
+      ? `zoompan=z='min(zoom+0.0006,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=1080x1920:fps=30`
+      : `zoompan=z='min(zoom+0.0006,1.08)':x='iw-iw/zoom':y='ih/2-(ih/zoom/2)':d=${frames}:s=1080x1920:fps=30`;
 
   const audioFilter = `afade=t=in:ss=0:d=0.15,afade=t=out:st=${Math.max(0, duration - 0.95).toFixed(3)}:d=0.55`;
 

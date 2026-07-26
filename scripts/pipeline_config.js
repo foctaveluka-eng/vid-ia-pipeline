@@ -19,7 +19,7 @@ const THEMES = {
     visualMode: "manga_motion",
     subject: "un manga original racontant une histoire complète, avec début, développement, climax et conclusion",
     style: "Construis une histoire longue mais complète, pas un simple résumé. Crée une bible de personnages cohérente (apparence, tenue, âge adulte ou adolescent non ambigu, relations, objectif) et respecte-la à chaque scène. Structure le récit en actes: mise en place, incident déclencheur, obstacles, révélation, climax, résolution. N'utilise aucun personnage, univers, nom, costume ou franchise protégés existants. Les dialogues doivent être racontés par le narrateur, sans bulles de texte.",
-    visualStyle: "original high-contrast black-and-white manga artwork, consistent character design and clothing, dynamic action, screentones, ink lines, cinematic panel composition, no speech bubbles, no written text, no watermark",
+    visualStyle: "professional full-color 2D anime/manga animation style like modern shonen anime (Naruto, Solo Leveling, Jujutsu Kaisen), consistent character designs from visual bible across all episodes, dynamic action scenes, smooth fluid motion, cinematic camera movements (pan, zoom, tracking shots, close-ups), expressive character poses and actions, high detail, vibrant colors, no speech bubbles, no written text, no subtitles, no watermark, vertical 9:16 video composition, characters visibly speaking or reacting to narration",
   },
   actualites: {
     label: "Actualités du monde vérifiables",
