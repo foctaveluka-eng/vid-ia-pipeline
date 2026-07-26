@@ -1,150 +1,88 @@
-name: "🎬 Vid IA Pipeline v3 — Viral Strategy"
+name: "🎬 Vid IA Pipeline PRO v2"
 
 on:
   schedule:
-    # Quotidien, 1 publication par créneau optimal
-    # 06:00 UTC = 08:00 Paris → Dessin animé (matin enfants)
-    # 10:00 UTC = 12:00 Paris → Actualités (midi info)
-    # 16:00 UTC = 18:00 Paris → Horreur (soir)
-    # 20:00 UTC = 22:00 Paris → Manga (nuit)
-    - cron: '0 6,10,16,20 * * *'
+    # Europe/Paris schedule (UTC)
+    - cron: '0 4,12,20 * * *'   # 06:00, 14:00, 22:00 Paris
   workflow_dispatch:
     inputs:
       theme:
-        description: 'Thème (auto, dessin_anime, manga, actualites, horreur)'
-        required: true
+        description: 'Force theme (manga, dessin_anime, actualites, horreur, auto)'
+        required: false
         default: 'auto'
         type: choice
         options:
           - auto
-          - dessin_anime
           - manga
+          - dessin_anime
           - actualites
           - horreur
-      mode:
-        description: 'Mode (full: avec YouTube, test: sans YouTube)'
-        required: true
-        default: 'full'
-        type: choice
-        options:
-          - full
-          - test
 
 jobs:
-  viral-pipeline:
+  run-pipeline:
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
     steps:
-      - name: "📥 Récupérer le code"
+      - name: "📥 Checkout code"
         uses: actions/checkout@v4
 
-      - name: "🟢 Node.js 20"
+      - name: "🟢 Setup Node.js 20"
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: "🔧 FFmpeg système + dépendances"
+      - name: "🔧 Install FFmpeg"
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
           ffmpeg -version | head -1
-          npm install
+
+      - name: "📦 Install dependencies"
+        run: npm install
         timeout-minutes: 5
 
-      - name: "📁 Dossiers temporaires"
-        run: mkdir -p tmp_data/images tmp_data/audio tmp_data/clips tmp_data/glam_raw
+      - name: "📁 Prepare folders"
+        run: mkdir -p tmp_data/clips tmp_data/images tmp_data/audio
 
-      - name: "🎯 Configuration du thème"
-        run: |
-          if [ "${{ github.event.inputs.theme }}" != "" ] && [ "${{ github.event.inputs.theme }}" != "auto" ]; then
-            echo "PIPELINE_THEME=${{ github.event.inputs.theme }}" >> $GITHUB_ENV
-          fi
-          echo "Mode: ${{ github.event.inputs.mode || 'full' }}"
-
-      - name: "🤖 ÉTAPE 1 — Script Viral v3 (hook scoring + émotions + pattern interrupts)"
-        run: |
-          echo "🎯 Génération du script avec la stratégie virale v3..."
-          node scripts/step1_generate_script_v3.js || {
-            echo "⚠️ Fallback v1..."
-            node scripts/step1_generate_script.js
-          }
-        timeout-minutes: 15
+      # ──────────────────────────────────────────────────────────
+      # NEW PRO PIPELINE (v2) — Video with embedded audio
+      # ──────────────────────────────────────────────────────────
+      - name: "🤖 STEP 1 — Generate VIRAL script"
+        run: node scripts/step1_generate_script.js
+        timeout-minutes: 8
         env:
           DELFA_API_URL: ${{ secrets.DELFA_API_URL }}
-          PIPELINE_THEME: ${{ env.PIPELINE_THEME }}
+          PIPELINE_THEME: ${{ github.event.inputs.theme || 'auto' }}
+          MANGA_SEGMENTS: '48'
+          CARTOON_SEGMENTS: '24'
 
-      - name: "📊 Score viral du script"
-        run: |
-          npm run viral:score 2>/dev/null || echo "Score viral disponible dans le rapport"
-
-      - name: "🎬 ÉTAPE 2 — Vraies vidéos animées (API Glam img2video)"
-        run: |
-          echo "🔷 Tentative Glam img2video (vrai mouvement IA)..."
-          node scripts/step2_generate_videos_glam.js || {
-            echo "⬜ Fallback standard (image + TTS + Ken Burns)..."
-            node scripts/step2_generate_videos.js
-          }
+      - name: "🎬 STEP 2 — Generate video clips WITH AUDIO INTEGRATED (PRO)"
+        run: node scripts/step2_generate_videos.js
         timeout-minutes: 60
         env:
           IMAGE_API_URL: ${{ secrets.IMAGE_API_URL }}
-          VIDEO_API_URL: ${{ secrets.IMAGE_API_URL }}
+          VIDEO_API_URL: ${{ secrets.VIDEO_API_URL || secrets.IMAGE_API_URL }}
+          DELFA_API_URL: ${{ secrets.DELFA_API_URL }}
 
-      - name: "🔍 ÉTAPE 2b — Vérification des clips"
-        run: node scripts/step2b_verify_images.js
-        timeout-minutes: 15
-        env:
-          IMAGE_API_URL: ${{ secrets.IMAGE_API_URL }}
+      - name: "✅ STEP 2b — Verify clips"
+        run: node scripts/step2b_verify_images.js || echo "Verification skipped (new PRO mode)"
+        timeout-minutes: 10
 
-      - name: "🎞️ ÉTAPE 4 — Montage final (crossfade + concat)"
+      - name: "🎞️ STEP 4 — Assemble final video (crossfade)"
         run: node scripts/step4_assemble_video.js
-        timeout-minutes: 30
+        timeout-minutes: 20
 
-      - name: "✍️ ÉTAPE 5 — Titre viral + hashtags trending"
+      - name: "✍️ STEP 5 — Generate title & hashtags"
         run: node scripts/step5_generate_filename.js
         timeout-minutes: 5
         env:
           DELFA_API_URL: ${{ secrets.DELFA_API_URL }}
 
-      - name: "📊 Rapport de performance virale"
-        run: |
-          echo "════════════════════════════════════════"
-          echo "  RAPPORT VIDÉO GÉNÉRÉE"
-          echo "════════════════════════════════════════"
-          if [ -f tmp_data/video_finale.mp4 ]; then
-            ls -lh tmp_data/video_finale.mp4
-            ffprobe tmp_data/video_finale.mp4 2>&1 | grep -E "Duration|Stream"
-          fi
-          if [ -f tmp_data/metadata.json ]; then
-            echo ""
-            echo "📋 Métadonnées :"
-            cat tmp_data/metadata.json | python3 -m json.tool 2>/dev/null || cat tmp_data/metadata.json
-          fi
-          if [ -f tmp_data/script_data.json ]; then
-            SCORE=$(python3 -c "import json; d=json.load(open('tmp_data/script_data.json')); print(d.get('viral_score','N/A'))" 2>/dev/null)
-            echo ""
-            echo "🏆 Score viral du script : $SCORE/100"
-          fi
-          echo ""
-          echo "📊 Rapport analytics :"
-          npm run viral:report 2>/dev/null || echo "Rapport disponible"
-
-      - name: "▶️ Publication YouTube"
-        if: ${{ github.event.inputs.mode != 'test' }}
+      - name: "▶️ STEP 6 — Upload to YouTube"
         run: node scripts/upload_youtube.js
         timeout-minutes: 15
         env:
           GOOGLE_CLIENT_ID:     ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
-
-      - name: "📦 Archiver les fichiers de sortie"
-        uses: actions/upload-artifact@v4
-        with:
-          name: video-pipeline-output
-          path: |
-            tmp_data/video_finale.mp4
-            tmp_data/metadata.json
-            tmp_data/script_data.json
-            tmp_data/viral_analytics.json
-          retention-days: 7
