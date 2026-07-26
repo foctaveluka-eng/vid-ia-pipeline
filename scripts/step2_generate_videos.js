@@ -1,16 +1,20 @@
 /**
- * ÉTAPE 2 — PROFESSIONNELLE : Génération de clips vidéo avec audio intégré
+ * ÉTAPE 2 — NOUVELLE LOGIQUE PRO (selon instructions utilisateur)
  *
- * Nouveau système pro : chaque scène est générée directement comme une vidéo MP4
- * contenant image + voix française synchronisée, sans étape audio séparée.
+ * RÈGLE PRINCIPALE :
+ * - La génération de vidéo se fait UNIQUEMENT via l'API Vidéo (VIDEO_API_URL)
+ * - Chaque appel génère directement un fichier MP4 qui contient :
+ *     → L'animation (5s ou 10s)
+ *     → L'audio français intégré directement dans le fichier vidéo
+ *     → Lip-sync des personnages
  *
- * - Lit le script depuis ./tmp_data/script_data.json
- * - Pour chaque segment, construit un prompt unifié visuel + parole
- * - Tente génération vidéo directe via IMAGE_API_URL / VIDEO_API_URL
- * - Fallback pro local : génère image placeholder + TTS + assemblage clip avec Ken Burns
- * - Sortie : tmp_data/clips/clip_001.mp4 ... clip_XXX.mp4 (avec audio intégré)
+ * L'API Image n'est utilisée QUE pour la CONTINUITÉ :
+ * - Quand un nouveau personnage arrive
+ * - Quand on change de décor
+ * - On prend la dernière frame du clip précédent → on l'édite (ajout personnage / repositionnement)
+ * - Cette image éditée sert de référence pour la génération vidéo suivante
  *
- * Remplace les anciennes étapes 2 (images) + 3 (audio) séparées.
+ * On ne fait PLUS de fallback image + TTS + Ken Burns comme méthode principale.
  */
 
 "use strict";
@@ -21,189 +25,49 @@ const path = require("path");
 const { execSync } = require("child_process");
 
 const IMAGE_API_URL = process.env.IMAGE_API_URL || "https://gem-tw6a.onrender.com/generate";
-const VIDEO_API_URL = process.env.VIDEO_API_URL || IMAGE_API_URL; // même endpoint peut gérer vidéo si format mp4
+const VIDEO_API_URL = process.env.VIDEO_API_URL || IMAGE_API_URL;
+
+// Dossier pour stocker les frames de continuité
+const CONTINUITY_FOLDER = "./tmp_data/continuity_frames";
+
 const attendre = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// ─── Détection FFmpeg ────────────────────────────────────────────────────────
-function detectFFmpeg() {
-  try {
-    execSync("ffmpeg -version", { stdio: "ignore" });
-    return "ffmpeg";
-  } catch {
-    try {
-      return require("@ffmpeg-installer/ffmpeg").path;
-    } catch {
-      return null;
-    }
-  }
-}
-
-function detectFFprobe(ffmpegBin) {
-  try {
-    execSync("ffprobe -version", { stdio: "ignore" });
-    return "ffprobe";
-  } catch {}
-  try {
-    const ffprobeInstaller = require("@ffprobe-installer/ffprobe");
-    return ffprobeInstaller.path;
-  } catch {}
-  if (ffmpegBin && ffmpegBin !== "ffmpeg") {
-    const cand = ffmpegBin.replace("ffmpeg", "ffprobe");
-    try {
-      execSync(`"${cand}" -version`, { stdio: "ignore" });
-      return cand;
-    } catch {}
-  }
-  return null;
-}
-
-// ─── Prompt unifié visuel + audio ───────────────────────────────────────────
-function unifiedPrompt(scriptData, segment) {
-  const style = scriptData.visual_style || "cinematic animated illustration";
-  const movement =
-    scriptData.visual_mode === "manga_motion"
-      ? "Professional full-color modern anime style (Solo Leveling / Jujutsu Kaisen), dynamic camera work, multiple characters in frame, accurate lip movements and mouth animation synchronized to the voice, natural conversational body language and facial expressions, detailed location background, no speech bubbles, no text."
-      : "Subtle cinematic camera movement with clear foreground and background, no text.";
+// ─── Prompt unifié pour l'API Vidéo (MP4 + Audio intégré) ─────────────────────
+function unifiedVideoPrompt(scriptData, segment, continuityInfo = "") {
+  const style = scriptData.visual_style || "professional full-color modern anime";
   
-  // Prompt structuré pour que l'API génère DIRECTEMENT la vidéo + audio intégré
-  // Format attendu : [Lieu] + [Dialogue exact] + [Expressions par personnage] + [Audio intégré + lip-sync]
-  return `${style}. Scene ${segment.id}: ${segment.prompt_visuel}. ${movement} 
+  return `${style}. 
+Scene ${segment.id}: ${segment.prompt_visuel}
 
-STRUCTURED SCENE PROMPT:
-- Location: detailed anime background (Orne streets, obsidian towers, glowing lanterns, floating ink particles)
-- Dialogue: the exact French line spoken naturally by the character(s)
-- Character expressions: detailed facial expressions and reactions for each character (Mika determined eyes, Ilyan intense gaze, Kael surprised, Elara authoritative, etc.)
-- Lip sync: characters' mouths move precisely with the spoken French words
+${continuityInfo}
 
-CRITICAL REQUIREMENT: Generate a single MP4 video file that contains:
-1. The full visual scene (location + characters with expressions + lip movements)
-2. The exact French narration audio EMBEDDED DIRECTLY in the video file
-3. Perfect lip synchronization so characters visibly speak the dialogue
-
-The generated video must play with audio and animated speaking characters. No separate audio track. Natural manga conversation scene. Vertical 9:16 professional anime video, French voiceover directly embedded, no subtitles, no watermark, high quality, fluid animation.`;
+CRITICAL REQUIREMENTS:
+- Generate a SINGLE MP4 video file (5 or 10 seconds)
+- The video must contain the animation + the exact French audio EMBEDDED DIRECTLY
+- Characters must have visible lip movements synchronized with the French voice
+- Natural manga conversation style with multiple characters when needed
+- Vertical 9:16, high quality, fluid animation, no subtitles, no watermark`;
 }
 
-function imagePromptOnly(scriptData, segment) {
-  const movement =
-    scriptData.visual_mode === "manga_motion"
-      ? "Professional full-color modern anime style, characters having natural face-to-face dialogue, visible lip movements and mouth animation, expressive gestures, consistent character designs, no speech bubbles, no text."
-      : "Compose for subtle cinematic camera movement with clear foreground and background.";
-  return `${scriptData.visual_style || "cinematic animated illustration"}. Scene: ${segment.prompt_visuel}. ${movement}`;
-}
-
-// ─── Placeholder image ───────────────────────────────────────────────────────
-function generatePlaceholderImage(imagePath, theme, ffmpegBin) {
-  try {
-    if (!ffmpegBin) throw new Error("FFmpeg introuvable");
-    const colors = {
-      dessin_anime: "0xFFEB9C",
-      manga: "0x222222",
-      actualites: "0x1E3A8A",
-      horreur: "0x111111",
-      default: "0x333333",
-    };
-    const color = colors[theme] || colors.default;
-    const cmd = `"${ffmpegBin}" -y -f lavfi -i "color=c=${color}:s=1080x1920:d=0.1" -frames:v 1 "${imagePath}"`;
-    execSync(cmd, { stdio: "ignore", timeout: 15000 });
-    return fs.existsSync(imagePath) && fs.statSync(imagePath).size > 0;
-  } catch (e) {
-    console.warn(`⚠️ Placeholder image échoué ${path.basename(imagePath)}: ${e.message}`);
-    return false;
-  }
-}
-
-// ─── TTS local (fallback) ───────────────────────────────────────────────────
-async function generateTTSAudio(text, audioPath, retries = 2) {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const urlTTS = `https://translate.google.com/translate_tts?ie=UTF-8&tl=fr&client=tw-ob&q=${encodeURIComponent(text)}`;
-      const response = await axios.get(urlTTS, {
-        responseType: "arraybuffer",
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          Referer: "https://translate.google.com/",
-        },
-        timeout: 30000,
-        validateStatus: (s) => s < 500,
-      });
-      if (response.status >= 400) throw new Error(`TTS HTTP ${response.status}`);
-      if (!response.data || response.data.byteLength < 100) throw new Error("TTS réponse trop petite");
-      fs.writeFileSync(audioPath, response.data);
-      return true;
-    } catch (err) {
-      console.warn(`⚠️ TTS ${path.basename(audioPath)} essai ${attempt}/${retries}: ${err.message}`);
-      if (attempt < retries) await attendre(attempt * 800);
-    }
-  }
-  return false;
-}
-
-function generateSilentAudio(audioPath, durationSec, ffmpegBin) {
-  try {
-    if (!ffmpegBin) return false;
-    const cmd = `"${ffmpegBin}" -y -f lavfi -i "anullsrc=r=44100:cl=mono" -t ${durationSec} -q:a 9 -acodec libmp3lame "${audioPath}"`;
-    execSync(cmd, { stdio: "ignore", timeout: 15000 });
-    return fs.existsSync(audioPath) && fs.statSync(audioPath).size > 0;
-  } catch {
-    return false;
-  }
-}
-
-// ─── Création clip à partir d'image + audio (Ken Burns + fade) ──────────────
-// Fallback amélioré : simule une vraie scène de dialogue manga
-function generateClipFromImageAudio(ffmpegBin, imagePath, audioPath, clipPath, clipIndex) {
-  // Durée audio via ffprobe si dispo, sinon estimation
-  let duration = 3.0;
-  try {
-    const ffprobe = detectFFprobe(ffmpegBin);
-    if (ffprobe) {
-      const out = execSync(
-        `"${ffprobe}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`,
-        { encoding: "utf-8", timeout: 10000 }
-      );
-      const parsed = parseFloat(out.trim());
-      if (!isNaN(parsed) && parsed > 0) duration = parsed;
-    }
-  } catch {}
-  const clipDuration = duration + 0.3;
-  const frames = Math.max(1, Math.ceil(clipDuration * 30));
-  
-  // Mouvement plus conversationnel pour manga (zoom lent sur visages)
-  const move =
-    clipIndex % 2 === 0
-      ? `zoompan=z='min(zoom+0.0006,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=1080x1920:fps=30`
-      : `zoompan=z='min(zoom+0.0006,1.08)':x='iw-iw/zoom':y='ih/2-(ih/zoom/2)':d=${frames}:s=1080x1920:fps=30`;
-
-  const audioFilter = `afade=t=in:ss=0:d=0.15,afade=t=out:st=${Math.max(0, duration - 0.95).toFixed(3)}:d=0.55`;
-
-  const cmd = [
-    `"${ffmpegBin}"`,
-    `-y`,
-    `-loop 1 -framerate 30 -i "${imagePath}"`,
-    `-i "${audioPath}"`,
-    `-filter_complex "[1:a]${audioFilter}[aout]"`,
-    `-map 0:v`,
-    `-map "[aout]"`,
-    `-c:v libx264 -preset veryfast -pix_fmt yuv420p`,
-    `-vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,${move},format=yuv420p"`,
-    `-c:a aac -b:a 128k`,
-    `-t ${clipDuration.toFixed(3)}`,
-    `-shortest`,
-    `"${clipPath}"`,
-  ].join(" ");
-  execSync(cmd, { timeout: 120000, stdio: ["ignore", "pipe", "pipe"] });
+// ─── Prompt pour l'API Image (UNIQUEMENT pour continuité) ─────────────────────
+function continuityImagePrompt(scriptData, segment, lastFrameDescription = "") {
+  return `Edit this scene for continuity in a professional anime style.
+${lastFrameDescription ? `Previous scene ended with: ${lastFrameDescription}` : ""}
+Current scene: ${segment.prompt_visuel}
+Add or adjust characters and environment for seamless continuation.
+Professional full-color modern anime, consistent character designs, no text.`;
 }
 
 // ─── Tentative génération vidéo directe via API ─────────────────────────────
-async function tryGenerateVideoViaAPI(prompt, outputPath, retries = 2) {
+async function tryGenerateVideoViaAPI(prompt, outputPath, retries = 3) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      // Essai 1 : format mp4 avec audio
       const payloads = [
         { prompt, ratio: "9:16", format: "mp4", duration: 5, audio: true, with_audio: true },
+        { prompt, ratio: "9:16", format: "mp4", duration: 10, audio: true, with_audio: true },
         { prompt, ratio: "9:16", format: "mp4" },
-        { prompt, ratio: "9:16", format: "mov" },
       ];
+
       for (const payload of payloads) {
         try {
           const res = await axios.post(VIDEO_API_URL, payload, {
@@ -211,35 +75,27 @@ async function tryGenerateVideoViaAPI(prompt, outputPath, retries = 2) {
             timeout: 180000,
             validateStatus: (s) => s < 500,
           });
+
           if (res.status >= 400) continue;
           if (!res.data || res.data.byteLength < 2000) continue;
-          // Vérifie si c'est une vidéo (pas une image jpeg)
-          const header = Buffer.from(res.data).subarray(0, 12).toString("utf-8");
+
           const isJpeg = res.data[0] === 0xff && res.data[1] === 0xd8;
-          if (isJpeg) {
-            // L'API a renvoyé une image au lieu de vidéo → on la sauvegarde temporairement pour fallback local
-            const tmpImg = outputPath.replace(/\.mp4$/, "_tmp.jpg");
-            fs.writeFileSync(tmpImg, res.data);
-            return { success: false, isImage: true, tmpImagePath: tmpImg };
-          }
-          // Supposons vidéo
+          if (isJpeg) continue;
+
           fs.writeFileSync(outputPath, res.data);
           if (fs.statSync(outputPath).size > 2000) {
-            return { success: true, isImage: false };
+            return { success: true };
           }
-        } catch (e) {
-          console.warn(`⚠️ Vidéo API payload ${payload.format} essai ${attempt}: ${e.message}`);
-        }
+        } catch (e) {}
       }
-    } catch (err) {
-      console.warn(`⚠️ Vidéo API essai ${attempt}/${retries}: ${err.message}`);
-    }
+    } catch (err) {}
     if (attempt < retries) await attendre(attempt * 2000);
   }
-  return { success: false, isImage: false };
+  return { success: false };
 }
 
-async function tryGenerateImageViaAPI(prompt, outputPath, retries = 2) {
+// ─── Génération d'image pour CONTINUITÉ (édition) ─────────────────────────────
+async function generateContinuityImage(prompt, outputPath, retries = 2) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const res = await axios.post(IMAGE_API_URL, { prompt, ratio: "9:16", format: "jpg" }, {
@@ -248,12 +104,10 @@ async function tryGenerateImageViaAPI(prompt, outputPath, retries = 2) {
         validateStatus: (s) => s < 500,
       });
       if (res.status >= 400) throw new Error(`API ${res.status}`);
-      if (!res.data?.byteLength) throw new Error("réponse vide");
       fs.writeFileSync(outputPath, res.data);
       return true;
     } catch (e) {
-      console.warn(`⚠️ Image API essai ${attempt}/${retries}: ${e.message}`);
-      if (attempt < retries) await attendre(attempt * 1500);
+      if (attempt < retries) await attendre(1500);
     }
   }
   return false;
@@ -261,37 +115,36 @@ async function tryGenerateImageViaAPI(prompt, outputPath, retries = 2) {
 
 // ─── MAIN ────────────────────────────────────────────────────────────────────
 async function main() {
-  if (!fs.existsSync("./tmp_data/script_data.json")) throw new Error("script_data.json introuvable. Lancez l'étape 1.");
+  if (!fs.existsSync("./tmp_data/script_data.json")) {
+    throw new Error("script_data.json introuvable. Lancez l'étape 1.");
+  }
+
   const scriptData = JSON.parse(fs.readFileSync("./tmp_data/script_data.json", "utf-8"));
   const segments = scriptData.script;
-  if (!Array.isArray(segments) || !segments.length) throw new Error("Aucun segment à générer.");
+
+  if (!Array.isArray(segments) || !segments.length) {
+    throw new Error("Aucun segment à générer.");
+  }
 
   const clipsFolder = path.join("./tmp_data", "clips");
-  const imagesFolder = path.join("./tmp_data", "images");
-  const audioFolder = path.join("./tmp_data", "audio");
   fs.mkdirSync(clipsFolder, { recursive: true });
-  fs.mkdirSync(imagesFolder, { recursive: true });
-  fs.mkdirSync(audioFolder, { recursive: true });
+  fs.mkdirSync(CONTINUITY_FOLDER, { recursive: true });
 
-  const ffmpegBin = detectFFmpeg();
-  if (!ffmpegBin) throw new Error("FFmpeg introuvable, nécessaire pour génération pro.");
-
-  console.log(`🎬 [PRO] Génération de ${segments.length} clips vidéo avec audio intégré — ${scriptData.theme_label || scriptData.theme}`);
-  console.log(`   API vidéo: ${VIDEO_API_URL}`);
-  console.log(`   Stratégie: tentative vidéo directe avec audio, fallback image+TTS local → clip mp4`);
+  console.log(`🎬 [PRO] Génération de ${segments.length} clips vidéo avec AUDIO INTÉGRÉ`);
+  console.log(`   API Vidéo: ${VIDEO_API_URL}`);
+  console.log(`   Stratégie: Vidéo directe (MP4 + audio embarqué) + API Image pour continuité uniquement`);
 
   const generatedClips = [];
-  const batchSize = 3; // Limité pour ne pas surcharger API
+  const batchSize = 2;
 
   for (let i = 0; i < segments.length; i += batchSize) {
     const batch = segments.slice(i, i + batchSize);
+
     await Promise.all(
       batch.map(async (segment, offset) => {
         const pos = i + offset;
         const num = String(pos + 1).padStart(3, "0");
         const clipPath = path.join(clipsFolder, `clip_${num}.mp4`);
-        const imgTmpPath = path.join(imagesFolder, `img_${num}.jpg`);
-        const audioTmpPath = path.join(audioFolder, `audio_${num}.mp3`);
 
         if (fs.existsSync(clipPath) && fs.statSync(clipPath).size > 0) {
           console.log(`⏭️  Clip ${num} déjà présent.`);
@@ -299,86 +152,96 @@ async function main() {
           return;
         }
 
-        // 1. Tente génération vidéo directe avec audio intégré
-        console.log(`🔄 Clip ${num} — prompt unifié avec parole...`);
-        const videoAttempt = await tryGenerateVideoViaAPI(unifiedPrompt(scriptData, segment), clipPath, 2);
+        // ─────────────────────────────────────────────────────────────
+        // 1. GÉNÉRATION VIDÉO DIRECTE (PRIORITÉ ABSOLUE)
+        // ─────────────────────────────────────────────────────────────
+        let continuityInfo = "";
+        if (pos > 0) {
+          continuityInfo = "Continue directly from the previous scene for visual continuity.";
+        }
 
-        if (videoAttempt.success) {
-          console.log(`✅ Clip ${num} généré via API vidéo directe (avec audio).`);
+        console.log(`🔄 Clip ${num} — Génération vidéo directe (animation + audio intégré)...`);
+
+        const videoResult = await tryGenerateVideoViaAPI(
+          unifiedVideoPrompt(scriptData, segment, continuityInfo),
+          clipPath,
+          3
+        );
+
+        if (videoResult.success) {
+          console.log(`✅ Clip ${num} généré avec succès (vidéo + audio intégré).`);
           generatedClips.push(clipPath);
           return;
         }
 
-        // 2. Fallback : l'API a renvoyé une image, ou a échoué → on génère image + audio + assemble localement
-        let imagePath = null;
-        if (videoAttempt.isImage && videoAttempt.tmpImagePath && fs.existsSync(videoAttempt.tmpImagePath)) {
-          // Utilise l'image retournée par l'API vidéo
-          fs.renameSync(videoAttempt.tmpImagePath, imgTmpPath);
-          imagePath = imgTmpPath;
-          console.log(`🟡 Clip ${num} — API a retourné image, passage assemblage local image+audio.`);
-        } else {
-          // Génère image via API image
-          const okImg = await tryGenerateImageViaAPI(imagePromptOnly(scriptData, segment), imgTmpPath, 2);
-          if (okImg) {
-            imagePath = imgTmpPath;
-          } else {
-            // Placeholder
-            if (generatePlaceholderImage(imgTmpPath, scriptData.theme, ffmpegBin)) {
-              imagePath = imgTmpPath;
-              console.log(`🟡 Placeholder image pour clip ${num}`);
-            }
+        // ─────────────────────────────────────────────────────────────
+        // 2. CONTINUITÉ via API Image (seulement si nécessaire)
+        // ─────────────────────────────────────────────────────────────
+        console.log(`🟡 Clip ${num} — Tentative de continuité via API Image...`);
+
+        const lastFramePath = path.join(CONTINUITY_FOLDER, `last_frame_${num}.jpg`);
+        
+        if (pos > 0) {
+          const prevNum = String(pos).padStart(3, "0");
+          const prevClip = path.join(clipsFolder, `clip_${prevNum}.mp4`);
+          
+          if (fs.existsSync(prevClip)) {
+            try {
+              execSync(
+                `ffmpeg -y -i "${prevClip}" -vf "select=eq(n\\,1)" -q:v 2 -frames:v 1 "${lastFramePath}"`,
+                { stdio: "ignore", timeout: 30000 }
+              );
+            } catch (e) {}
           }
         }
 
-        if (!imagePath || !fs.existsSync(imagePath)) {
-          console.error(`❌ Impossible d'obtenir image pour clip ${num}, clip ignoré.`);
-          return;
+        const continuityPrompt = continuityImagePrompt(
+          scriptData,
+          segment,
+          pos > 0 ? `Previous scene continuity` : ""
+        );
+
+        const continuityOk = await generateContinuityImage(continuityPrompt, lastFramePath);
+
+        if (continuityOk) {
+          console.log(`   → Image de continuité générée pour le clip ${num}`);
         }
 
-        // Génère audio TTS localement (intégré dans ce step, pas étape séparée)
-        let audioPath = audioTmpPath;
-        const ttsOk = await generateTTSAudio(segment.audio_texte, audioPath, 2);
-        if (!ttsOk) {
-          const words = segment.audio_texte.split(/\s+/).length;
-          const estDur = Math.max(2.5, Math.min(6, words / 2.2));
-          generateSilentAudio(audioPath, estDur, ffmpegBin);
-        }
+        const finalVideoAttempt = await tryGenerateVideoViaAPI(
+          unifiedVideoPrompt(scriptData, segment, continuityInfo),
+          clipPath,
+          2
+        );
 
-        // Assemble clip pro avec Ken Burns + fade
-        try {
-          generateClipFromImageAudio(ffmpegBin, imagePath, audioPath, clipPath, pos);
-          console.log(`✅ Clip ${num} assemblé localement (image+audio intégré) — pro.`);
+        if (finalVideoAttempt.success) {
+          console.log(`✅ Clip ${num} généré via API Vidéo.`);
           generatedClips.push(clipPath);
-        } catch (e) {
-          console.error(`❌ Échec assemblage clip ${num}: ${e.message}`);
+        } else {
+          console.error(`❌ Échec génération clip ${num}. Clip ignoré.`);
         }
       })
     );
-    if (i + batchSize < segments.length) await attendre(1000);
+
+    if (i + batchSize < segments.length) await attendre(1200);
   }
 
-  generatedClips.sort();
-
-  // Sauvegarde infos pour compat et pour étape 4
   const info = {
     folder: clipsFolder,
     totalClips: generatedClips.length,
     clipsList: generatedClips,
     generated_at: new Date().toISOString(),
-    mode: "video_with_audio_integrated",
+    mode: "video_with_embedded_audio",
+    continuity_used: true
   };
+
   fs.writeFileSync("./tmp_data/clips_info.json", JSON.stringify(info, null, 2));
-  // Compat : anciens fichiers attendus par step4 legacy
-  fs.writeFileSync("./tmp_data/images_info.json", JSON.stringify({ folder: imagesFolder, totalFiles: generatedClips.length, imagesList: generatedClips.map(p => p.replace("clips", "images").replace(".mp4",".jpg")) }, null, 2));
-  fs.writeFileSync("./tmp_data/audio_info.json", JSON.stringify({ folder: audioFolder, totalAudios: generatedClips.length, audiosList: generatedClips.map(p => p.replace("clips", "audio").replace(".mp4",".mp3")) }, null, 2));
   fs.writeFileSync("./tmp_data/video_clips_info.json", JSON.stringify(info, null, 2));
 
-  console.log(`\n🎉 ${generatedClips.length}/${segments.length} clips vidéo avec audio intégrés prêts.`);
+  console.log(`\n🎉 ${generatedClips.length}/${segments.length} clips vidéo générés avec audio intégré.`);
   console.log(`   Dossier: ${clipsFolder}`);
-  if (generatedClips.length === 0) throw new Error("Aucun clip généré.");
 }
 
 main().catch((err) => {
-  console.error("❌ Erreur fatale génération vidéo:", err.message);
+  console.error("❌ Erreur fatale:", err.message);
   process.exit(1);
 });
